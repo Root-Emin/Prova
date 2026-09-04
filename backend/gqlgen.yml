@@ -45,3 +45,15 @@ models:
   JSON:
     model:
       - github.com/masterfabric-go/masterfabric/graph/scalar.JSON
+
+  # Oturumun transkripti ve puanı ayrı resolver'lardan geliyor.
+  #
+  # Liste sorgusunda her oturum için transkript ve puan çekmek, yirmi
+  # satırlık bir sayfayı yüzlerce belge okumaya çevirirdi. Alan resolver'ı,
+  # istemci gerçekten istediğinde okur.
+  Session:
+    fields:
+      turns:
+        resolver: true
+      score:
+        resolver: true

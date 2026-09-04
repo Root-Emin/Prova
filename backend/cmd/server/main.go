@@ -17,17 +17,23 @@ import (
 	"github.com/masterfabric-go/masterfabric/graph"
 	iamAppService "github.com/masterfabric-go/masterfabric/internal/application/iam/service"
 	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
+	provaAppService "github.com/masterfabric-go/masterfabric/internal/application/prova/service"
+	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
 	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
 	notify "github.com/masterfabric-go/masterfabric/internal/domain/notification/service"
+	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	infraAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/audit"
 	infraAuth "github.com/masterfabric-go/masterfabric/internal/infrastructure/auth"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email"
 	infraGQL "github.com/masterfabric-go/masterfabric/internal/infrastructure/graphql"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/http/router"
+	"github.com/masterfabric-go/masterfabric/internal/infrastructure/llm"
 	infraMongo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo"
+	provaMongoRepo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo/prova"
 	pgAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/audit"
 	pgIam "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/iam"
 	pgTenant "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/tenant"
+	"github.com/masterfabric-go/masterfabric/internal/infrastructure/realtime"
 	"github.com/masterfabric-go/masterfabric/internal/shared/cache"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 	"github.com/masterfabric-go/masterfabric/internal/shared/database"
@@ -257,6 +263,55 @@ func buildDependencies(
 	manageDevicesUC := iamUC.NewManageDevicesUseCase(deviceRepo, denylist, auditRecorder, log)
 	logoutUC := iamUC.NewLogoutUseCase(denylist, auditRecorder, cfg.Token.AccessTTL, log)
 
+	// --- Prova: nesne veritabanı, LLM hattı ve oturumlar ---
+	//
+	// MongoDB yoksa Prova akışları hiç bağlanmaz. Yarım bağlanmış bir oturum
+	// akışı, kullanıcıya oynanabilir görünüp ilk konuşma sırasında çökerdi.
+	var (
+		sessionUC   *provaUC.SessionUseCase
+		broker      *realtime.SessionBroker
+		sessionRepo *provaMongoRepo.SessionRepo
+		scoreRepo   *provaMongoRepo.ScoreRepo
+		charRepo    *provaMongoRepo.CharacterRepo
+		scenRepo    *provaMongoRepo.ScenarioRepo
+		rubRepo     *provaMongoRepo.RubricRepo
+		profileRepo *provaMongoRepo.LLMProfileRepo
+		routingRepo *provaMongoRepo.RoutingRepo
+	)
+	if mongoDB != nil {
+		charRepo = provaMongoRepo.NewCharacterRepo(mongoDB.Database)
+		scenRepo = provaMongoRepo.NewScenarioRepo(mongoDB.Database)
+		rubRepo = provaMongoRepo.NewRubricRepo(mongoDB.Database)
+		profileRepo = provaMongoRepo.NewLLMProfileRepo(mongoDB.Database)
+		sessionRepo = provaMongoRepo.NewSessionRepo(mongoDB.Database)
+		scoreRepo = provaMongoRepo.NewScoreRepo(mongoDB.Database)
+		routingRepo = provaMongoRepo.NewRoutingRepo(mongoDB.Database)
+
+		broker = realtime.NewSessionBroker(log)
+		gateway := provaAppService.NewGateway(
+			profileRepo,
+			routingRepo,
+			llm.NewClient(cfg.LLM.RequestTimeout),
+			provaAppService.NewRuleRouter(cfg.LLM.LongInputThreshold),
+			nil, // PII maskeleyici Faz 9'da bağlanıyor
+			llm.NewEnvKeys(),
+			log,
+		)
+		sessionUC = provaUC.NewSessionUseCase(provaUC.SessionDeps{
+			Sessions:   sessionRepo,
+			Scores:     scoreRepo,
+			Scenarios:  scenRepo,
+			Characters: charRepo,
+			Rubrics:    rubRepo,
+			Gateway:    gateway,
+			Events:     broker,
+			Audit:      auditRecorder,
+			Log:        log,
+		})
+	} else {
+		log.Warn("nesne veritabanı yok; oturum ve içerik akışları devre dışı")
+	}
+
 	// --- GraphQL ---
 	resolver := &graph.Resolver{
 		Log:                log,
@@ -267,6 +322,16 @@ func buildDependencies(
 		Users:              userRepo,
 		RBAC:               rbacService,
 		AuditRepo:          auditRepo,
+
+		SessionUC:      sessionUC,
+		SessionRepo:    orNilSession(sessionRepo),
+		ScoreRepo:      orNilScore(scoreRepo),
+		CharacterRepo:  orNilCharacter(charRepo),
+		ScenarioRepo:   orNilScenario(scenRepo),
+		RubricRepo:     orNilRubric(rubRepo),
+		LLMProfileRepo: orNilProfile(profileRepo),
+		RoutingRepo:    orNilRouting(routingRepo),
+		Broker:         broker,
 	}
 	deps.GraphQLHandler = infraGQL.NewServer(infraGQL.ServerConfig{
 		Resolver:       resolver,
@@ -281,8 +346,6 @@ func buildDependencies(
 		deps.PlaygroundHandler = infraGQL.NewPlayground()
 	}
 
-	_ = mongoDB
-
 	cleanup := func() {
 		// Denetim yazımları eşzamansızdır; süreç ölmeden önce beklenir, yoksa
 		// son işlemin kaydı kaybolur.
@@ -292,3 +355,57 @@ func buildDependencies(
 }
 
 var _ auditService.Recorder = (*infraAudit.Recorder)(nil)
+
+// Aşağıdaki yardımcılar tipli nil'i arayüz nil'ine çevirir.
+//
+// Go'da nil bir *SessionRepo'yu bir arayüz alanına atamak, arayüzü nil
+// YAPMAZ: içinde tip bilgisi taşıyan, nil olmayan bir arayüz üretir. Resolver
+// bunu "depo var" diye okuyup nil pointer üzerinde metot çağırırdı.
+func orNilSession(r *provaMongoRepo.SessionRepo) provaRepo.SessionRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func orNilScore(r *provaMongoRepo.ScoreRepo) provaRepo.ScoreRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func orNilCharacter(r *provaMongoRepo.CharacterRepo) provaRepo.CharacterRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func orNilScenario(r *provaMongoRepo.ScenarioRepo) provaRepo.ScenarioRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func orNilRubric(r *provaMongoRepo.RubricRepo) provaRepo.RubricRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func orNilProfile(r *provaMongoRepo.LLMProfileRepo) provaRepo.LLMProfileRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func orNilRouting(r *provaMongoRepo.RoutingRepo) provaRepo.RoutingRepository {
+	if r == nil {
+		return nil
+	}
+	return r
+}

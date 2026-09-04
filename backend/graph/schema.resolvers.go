@@ -7,11 +7,15 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/masterfabric-go/masterfabric/graph/model"
 	iamDTO "github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
+	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
+	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
+	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
 
 // RequestLoginCode is the resolver for the requestLoginCode field.
@@ -128,17 +132,41 @@ func (r *mutationResolver) PublishRubric(ctx context.Context, lineageID uuid.UUI
 
 // StartSession is the resolver for the startSession field.
 func (r *mutationResolver) StartSession(ctx context.Context, input model.StartSessionInput) (*model.Session, error) {
-	return nil, notImplemented("startSession")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	session, err := r.SessionUC.Start(ctx, scopeOf(v), v.UserID, v.DeviceID, input.ScenarioLineageID)
+	if err != nil {
+		return nil, err
+	}
+	return mapSession(session), nil
 }
 
 // SubmitTurn is the resolver for the submitTurn field.
 func (r *mutationResolver) SubmitTurn(ctx context.Context, input model.SubmitTurnInput) (*model.Turn, error) {
-	return nil, notImplemented("submitTurn")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	turn, err := r.SessionUC.SubmitTurn(ctx, scopeOf(v), v.UserID, input.SessionID, input.Text)
+	if err != nil {
+		return nil, err
+	}
+	return mapTurn(turn), nil
 }
 
 // EndSession is the resolver for the endSession field.
 func (r *mutationResolver) EndSession(ctx context.Context, sessionID uuid.UUID) (*model.Session, error) {
-	return nil, notImplemented("endSession")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	session, err := r.SessionUC.End(ctx, scopeOf(v), v.UserID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return mapSession(session), nil
 }
 
 // OverrideScore is the resolver for the overrideScore field.
@@ -216,47 +244,167 @@ func (r *queryResolver) MyDevices(ctx context.Context) ([]*model.Device, error) 
 
 // MySessions is the resolver for the mySessions field.
 func (r *queryResolver) MySessions(ctx context.Context, limit *int, offset *int) ([]*model.Session, error) {
-	return nil, notImplemented("mySessions")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := r.SessionRepo.ListByEmployee(ctx, scopeOf(v), v.UserID, provaRepo.ListOptions{
+		Limit:  clampLimit(intOrDefault(limit, 20), 20, 100),
+		Offset: intOrDefault(offset, 0),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapSessions(sessions), nil
 }
 
 // Session is the resolver for the session field.
 func (r *queryResolver) Session(ctx context.Context, id uuid.UUID) (*model.Session, error) {
-	return nil, notImplemented("session")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	session, err := r.SessionRepo.GetByID(ctx, scopeOf(v), id)
+	if err != nil {
+		return nil, err
+	}
+	// Sahiplik burada da kontrol ediliyor: transkript kişisel veri taşıyor ve
+	// oturum kimliğini tahmin eden biri onu okuyamamalı. session:read izni
+	// olan bir yönetici istisna.
+	if session.EmployeeID != v.UserID {
+		allowed, err := r.hasPermission(ctx, v, "session:read:all")
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, provaModel.ErrSessionNotOwned
+		}
+	}
+	return mapSession(session), nil
 }
 
 // Scenarios is the resolver for the scenarios field.
 func (r *queryResolver) Scenarios(ctx context.Context, publishedOnly *bool) ([]*model.Scenario, error) {
-	return nil, notImplemented("scenarios")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := r.ScenarioRepo.List(ctx, scopeOf(v), provaRepo.ListOptions{
+		PublishedOnly: boolOrDefault(publishedOnly, true),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapScenarios(items), nil
 }
 
 // Scenario is the resolver for the scenario field.
 func (r *queryResolver) Scenario(ctx context.Context, lineageID uuid.UUID, version *int) (*model.Scenario, error) {
-	return nil, notImplemented("scenario")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Sürüm verilmezse en son yayınlanmış sürüm döner. Taslak dönmek,
+	// çalışanın üzerinde çalışılan bir içeriği görmesi demek olurdu.
+	if version == nil {
+		item, err := r.ScenarioRepo.GetLatestPublished(ctx, scopeOf(v), lineageID)
+		if err != nil {
+			return nil, err
+		}
+		return mapScenario(item), nil
+	}
+	item, err := r.ScenarioRepo.GetVersion(ctx, scopeOf(v), lineageID, *version)
+	if err != nil {
+		return nil, err
+	}
+	return mapScenario(item), nil
 }
 
 // Characters is the resolver for the characters field.
 func (r *queryResolver) Characters(ctx context.Context, publishedOnly *bool) ([]*model.Character, error) {
-	return nil, notImplemented("characters")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := r.CharacterRepo.List(ctx, scopeOf(v), provaRepo.ListOptions{
+		PublishedOnly: boolOrDefault(publishedOnly, true),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapCharacters(items), nil
 }
 
 // Character is the resolver for the character field.
 func (r *queryResolver) Character(ctx context.Context, lineageID uuid.UUID, version *int) (*model.Character, error) {
-	return nil, notImplemented("character")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Sürüm verilmezse en son yayınlanmış sürüm döner. Taslak dönmek,
+	// çalışanın üzerinde çalışılan bir içeriği görmesi demek olurdu.
+	if version == nil {
+		item, err := r.CharacterRepo.GetLatestPublished(ctx, scopeOf(v), lineageID)
+		if err != nil {
+			return nil, err
+		}
+		return mapCharacter(item), nil
+	}
+	item, err := r.CharacterRepo.GetVersion(ctx, scopeOf(v), lineageID, *version)
+	if err != nil {
+		return nil, err
+	}
+	return mapCharacter(item), nil
 }
 
 // Rubrics is the resolver for the rubrics field.
 func (r *queryResolver) Rubrics(ctx context.Context, publishedOnly *bool) ([]*model.Rubric, error) {
-	return nil, notImplemented("rubrics")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := r.RubricRepo.List(ctx, scopeOf(v), provaRepo.ListOptions{
+		PublishedOnly: boolOrDefault(publishedOnly, true),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRubrics(items), nil
 }
 
 // Rubric is the resolver for the rubric field.
 func (r *queryResolver) Rubric(ctx context.Context, lineageID uuid.UUID, version *int) (*model.Rubric, error) {
-	return nil, notImplemented("rubric")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Sürüm verilmezse en son yayınlanmış sürüm döner. Taslak dönmek,
+	// çalışanın üzerinde çalışılan bir içeriği görmesi demek olurdu.
+	if version == nil {
+		item, err := r.RubricRepo.GetLatestPublished(ctx, scopeOf(v), lineageID)
+		if err != nil {
+			return nil, err
+		}
+		return mapRubric(item), nil
+	}
+	item, err := r.RubricRepo.GetVersion(ctx, scopeOf(v), lineageID, *version)
+	if err != nil {
+		return nil, err
+	}
+	return mapRubric(item), nil
 }
 
 // LlmProfiles is the resolver for the llmProfiles field.
 func (r *queryResolver) LlmProfiles(ctx context.Context) ([]*model.LLMProfile, error) {
-	return nil, notImplemented("llmProfiles")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := r.LLMProfileRepo.List(ctx, scopeOf(v), provaRepo.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMProfiles(profiles), nil
 }
 
 // RoutingStats is the resolver for the routingStats field.
@@ -279,9 +427,83 @@ func (r *queryResolver) DeletionStatus(ctx context.Context) (*model.DeletionStat
 	return nil, notImplemented("deletionStatus")
 }
 
+// Turns is the resolver for the turns field.
+func (r *sessionResolver) Turns(ctx context.Context, obj *model.Session) ([]*model.Turn, error) {
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	turns, err := r.SessionRepo.ListTurns(ctx, scopeOf(v), obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	return mapTurns(turns), nil
+}
+
+// Score is the resolver for the score field.
+func (r *sessionResolver) Score(ctx context.Context, obj *model.Session) (*model.Score, error) {
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	score, err := r.ScoreRepo.GetBySession(ctx, scopeOf(v), obj.ID)
+	if err != nil {
+		// Puanı olmayan oturum bir hata değil: oturum hâlâ oynanıyor
+		// olabilir. Alan nullable, ve null doğru cevap.
+		if errors.Is(err, domainErr.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return mapScore(score), nil
+}
+
 // SessionEvents is the resolver for the sessionEvents field.
+//
+// Sahiplik bağlantı anında doğrulanıyor, ilk olay geldiğinde değil: transkript
+// kişisel veri taşıyor ve bir oturum kimliğini tahmin eden kişi akışa hiç
+// bağlanamamalı.
 func (r *subscriptionResolver) SessionEvents(ctx context.Context, sessionID uuid.UUID) (<-chan *model.SessionEvent, error) {
-	return nil, notImplemented("sessionEvents")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	session, err := r.SessionRepo.GetByID(ctx, scopeOf(v), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session.EmployeeID != v.UserID {
+		return nil, provaModel.ErrSessionNotOwned
+	}
+
+	source, unsubscribe := r.Broker.Subscribe(sessionID)
+	out := make(chan *model.SessionEvent, 1)
+
+	go func() {
+		// Abonelik bağlam kapandığında sökülür. Sökülmezse yayın yolu her
+		// olayı ölü bir kanala yazmayı dener ve tampon dolduğunda oturumun
+		// olayları düşmeye başlar.
+		defer unsubscribe()
+		defer close(out)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-source:
+				if !ok {
+					return
+				}
+				select {
+				case out <- mapSessionEvent(event):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return out, nil
 }
 
 // Mutation returns MutationResolver implementation.
@@ -290,11 +512,15 @@ func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
+// Session returns SessionResolver implementation.
+func (r *Resolver) Session() SessionResolver { return &sessionResolver{r} }
+
 // Subscription returns SubscriptionResolver implementation.
 func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionResolver{r} }
 
 type (
 	mutationResolver     struct{ *Resolver }
 	queryResolver        struct{ *Resolver }
+	sessionResolver      struct{ *Resolver }
 	subscriptionResolver struct{ *Resolver }
 )

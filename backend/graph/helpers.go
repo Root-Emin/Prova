@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/masterfabric-go/masterfabric/graph/model"
+	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	"github.com/masterfabric-go/masterfabric/internal/shared/authctx"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
@@ -95,3 +96,24 @@ func clientIP(ctx context.Context) string {
 }
 
 var _ = model.UserStatusActive
+
+// scopeOf, çağıranın kiracı sınırını üretir.
+//
+// Her Prova deposu bunu istiyor ve org kimliği yalnızca JWT claim'inden
+// geliyor: istemciden gelen bir organizasyon kimliğine güvenmek, kiracı
+// sınırını istemcinin insafına bırakmak olurdu.
+func scopeOf(v *authctx.Viewer) provaRepo.Scope {
+	return provaRepo.NewScope(v.OrgID)
+}
+
+// hasPermission, RBAC servisine tek bir izni sorar.
+//
+// @permission directive'i alan bazında çalışıyor; bu yardımcı, izne alan
+// seviyesinde değil kayıt seviyesinde bakılması gereken yerler için
+// (başkasının oturumunu okumak gibi).
+func (r *Resolver) hasPermission(ctx context.Context, v *authctx.Viewer, permission string) (bool, error) {
+	if r.RBAC == nil {
+		return false, nil
+	}
+	return r.RBAC.HasPermission(ctx, v.UserID, v.OrgID, permission)
+}

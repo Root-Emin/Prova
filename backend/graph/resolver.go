@@ -10,9 +10,12 @@ import (
 	"log/slog"
 
 	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
+	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
 	auditRepo "github.com/masterfabric-go/masterfabric/internal/domain/audit/repository"
 	iamRepo "github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	iamService "github.com/masterfabric-go/masterfabric/internal/domain/iam/service"
+	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
+	"github.com/masterfabric-go/masterfabric/internal/infrastructure/realtime"
 )
 
 // Resolver, tüm resolver'ların paylaştığı bağımlılık kökü.
@@ -33,4 +36,19 @@ type Resolver struct {
 
 	// --- denetim ---
 	AuditRepo auditRepo.AuditRepository
+
+	// --- Prova içeriği ve oturumları ---
+	//
+	// Depo alanları Repo ile bitiyor: gqlgen'in ürettiği resolver metotları
+	// şema alan adlarını taşıyor (Scenarios, Characters, Rubrics), ve aynı
+	// adı taşıyan bir alan o metodu gölgeler.
+	SessionUC      *provaUC.SessionUseCase
+	SessionRepo    provaRepo.SessionRepository
+	ScoreRepo      provaRepo.ScoreRepository
+	CharacterRepo  provaRepo.CharacterRepository
+	ScenarioRepo   provaRepo.ScenarioRepository
+	RubricRepo     provaRepo.RubricRepository
+	LLMProfileRepo provaRepo.LLMProfileRepository
+	RoutingRepo    provaRepo.RoutingRepository
+	Broker         *realtime.SessionBroker
 }
