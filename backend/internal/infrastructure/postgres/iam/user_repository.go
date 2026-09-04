@@ -164,3 +164,102 @@ func (r *UserRepo) List(ctx context.Context, offset, limit int) ([]*model.User, 
 	}
 	return users, total, nil
 }
+
+// ListDuePurge, geri alma penceresi dolmuş hesapları döndürür.
+func (r *UserRepo) ListDuePurge(ctx context.Context, now time.Time, limit int) ([]*model.User, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.db.Query(ctx,
+		`SELECT `+userColumns+`
+		   FROM users
+		  WHERE deletion_scheduled_at IS NOT NULL
+		    AND deletion_scheduled_at <= $1
+		    AND deleted_at IS NULL
+		  ORDER BY deletion_scheduled_at
+		  LIMIT $2`, now, limit,
+	)
+	if err != nil {
+		return nil, domainErr.New(domainErr.ErrInternal, "silinecek hesaplar okunamadı", err)
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, domainErr.New(domainErr.ErrInternal, "hesap çözümlenemedi", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, domainErr.New(domainErr.ErrInternal, "silinecek hesaplar okunamadı", err)
+	}
+	return users, nil
+}
+
+// Purge, kişisel veriyi siler ve satırı kimliksiz bir kabuk olarak bırakır.
+//
+// deleted_at koşulu sorgunun içinde: iş iki kez çalışırsa ikinci koşu hiçbir
+// şey yapmamalı, ve "önce oku sonra sil" biçiminde yazılsaydı aynı hesap iki
+// kez silinmiş sayılıp iki denetim kaydı üretirdi.
+func (r *UserRepo) Purge(ctx context.Context, id uuid.UUID, at time.Time) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users
+		    SET email = NULL,
+		        first_name = NULL,
+		        last_name = NULL,
+		        email_verified_at = NULL,
+		        status = $1,
+		        deleted_at = $2,
+		        locked_until = NULL,
+		        failed_attempts = 0,
+		        updated_at = $2
+		  WHERE id = $3 AND deleted_at IS NULL`,
+		model.UserStatusDeleted, at, id,
+	)
+	if err != nil {
+		return domainErr.New(domainErr.ErrInternal, "hesap silinemedi", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domainErr.New(domainErr.ErrNotFound, "silinecek hesap bulunamadı", nil)
+	}
+	return nil
+}
+
+// RecordFailedAttempt, sayacı artırır ve eşik aşılırsa kilitler.
+//
+// Artırma ve kilitleme tek ifadede: iki ayrı sorgu olsaydı, eşzamanlı
+// denemeler sayacı aynı değerde okuyup kilidi hiç kurmayabilirdi.
+func (r *UserRepo) RecordFailedAttempt(ctx context.Context, id uuid.UUID, threshold int, lockUntil time.Time) (int, error) {
+	var attempts int
+	err := r.db.QueryRow(ctx,
+		`UPDATE users
+		    SET failed_attempts = failed_attempts + 1,
+		        locked_until = CASE
+		            WHEN failed_attempts + 1 >= $1 THEN $2
+		            ELSE locked_until
+		        END,
+		        updated_at = NOW()
+		  WHERE id = $3
+		  RETURNING failed_attempts`,
+		threshold, lockUntil, id,
+	).Scan(&attempts)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, domainErr.New(domainErr.ErrNotFound, "kullanıcı bulunamadı", nil)
+		}
+		return 0, domainErr.New(domainErr.ErrInternal, "başarısız deneme kaydedilemedi", err)
+	}
+	return attempts, nil
+}
+
+// ClearFailedAttempts, başarılı girişten sonra sayacı ve kilidi sıfırlar.
+func (r *UserRepo) ClearFailedAttempts(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = NOW() WHERE id = $1`, id)
+	if err != nil {
+		return domainErr.New(domainErr.ErrInternal, "deneme sayacı sıfırlanamadı", err)
+	}
+	return nil
+}

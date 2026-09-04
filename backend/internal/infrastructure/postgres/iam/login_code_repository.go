@@ -161,3 +161,16 @@ func nullableIP(ip string) any {
 	}
 	return ip
 }
+
+// DeleteByEmail, adrese ait kod satırlarını düşürür.
+//
+// Kalıcı silmede çağrılır: bir giriş kodu satırı bir adresi bir zaman
+// damgasına bağlar ve kişisel veridir. Kod satırları denetim kaydı değildir;
+// saklanmaları yalnızca risktir.
+func (r *LoginCodeRepo) DeleteByEmail(ctx context.Context, email string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM login_codes WHERE lower(email) = lower($1)`, email)
+	if err != nil {
+		return domainErr.New(domainErr.ErrInternal, "giriş kodları silinemedi", err)
+	}
+	return nil
+}

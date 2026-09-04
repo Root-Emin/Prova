@@ -4,7 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
+
+// minProductionGracePeriod, üretimde kabul edilen en kısa geri alma penceresi.
+//
+// Geliştirmede sıfır serbest — silme zincirinin uçtan uca test edilebilmesi
+// buna bağlı. Üretimde sıfır, yanlışlıkla "sil" diyen kullanıcının verisini
+// aynı dakikada yok etmek demek.
+const minProductionGracePeriod = 24 * time.Hour
 
 // IsProduction, katı doğrulamanın uygulanacağı ortamı bildirir.
 func (c *Config) IsProduction() bool {
@@ -48,6 +56,12 @@ func (c *Config) Validate() error {
 		}
 		if strings.TrimSpace(c.Email.FromAddress) == "" {
 			problems = append(problems, errors.New("EMAIL_FROM_ADDRESS boş; gönderen adresi olmadan teslim yapılamaz"))
+		}
+		if c.Lifecycle.DeletionGracePeriod < minProductionGracePeriod {
+			problems = append(problems, fmt.Errorf(
+				"LIFECYCLE_DELETION_GRACE_SECONDS üretimde en az %s olmalı; daha kısa bir pencere, "+
+					"yanlışlıkla silme talebi veren kullanıcıya geri alma şansı bırakmaz",
+				minProductionGracePeriod))
 		}
 		if len(c.Server.CORSAllowedOrigins) == 0 {
 			problems = append(problems, errors.New(

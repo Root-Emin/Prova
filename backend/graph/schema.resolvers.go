@@ -12,7 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/masterfabric-go/masterfabric/graph/model"
+	"github.com/masterfabric-go/masterfabric/graph/scalar"
 	iamDTO "github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
+	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
 	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
@@ -323,22 +325,98 @@ func (r *mutationResolver) TestLLMProfile(ctx context.Context, input model.TestL
 
 // UpdateProfile is the resolver for the updateProfile field.
 func (r *mutationResolver) UpdateProfile(ctx context.Context, input model.UpdateProfileInput) (*model.User, error) {
-	return nil, notImplemented("updateProfile")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := r.AccountUC.UpdateProfile(ctx, v.OrgID, v.UserID, iamUC.ProfileUpdate{
+		FirstName: input.FirstName,
+		LastName:  input.LastName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapUser(user, v.OrgID, r.permissionsOf(ctx, v.UserID, v.OrgID)), nil
 }
 
 // ExportMyData is the resolver for the exportMyData field.
 func (r *mutationResolver) ExportMyData(ctx context.Context) (*model.DataExport, error) {
-	return nil, notImplemented("exportMyData")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	document, err := r.AccountUC.Export(ctx, v.OrgID, v.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := r.Users.GetByID(ctx, v.UserID)
+	if err != nil {
+		return nil, err
+	}
+	devices, err := r.ManageDevicesUC.List(ctx, v.UserID)
+	if err != nil {
+		return nil, err
+	}
+	entries, _, err := r.AuditRepo.ListByUser(ctx, v.UserID, 0, exportAuditLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Yapılandırılmış alanlar ile ham belge birlikte dönüyor. Yapılandırılmış
+	// alanlar arayüzün göstereceği şey; ham belge kullanıcının indirip
+	// saklayacağı ve KVKK talebine karşılık gelen şey.
+	export := &model.DataExport{
+		ExportedAt: time.Now().UTC(),
+		User:       mapUser(user, v.OrgID, r.permissionsOf(ctx, v.UserID, v.OrgID)),
+		Devices:    mapDevices(devices),
+		Sessions:   []*model.Session{},
+		AuditLog:   mapAuditEntries(entries),
+		Document:   scalar.JSON(document),
+	}
+
+	if r.SessionRepo != nil {
+		sessions, err := r.SessionRepo.ListByEmployee(ctx, scopeOf(v), v.UserID, provaRepo.ListOptions{Limit: exportSessionLimit})
+		if err != nil {
+			return nil, err
+		}
+		export.Sessions = mapSessions(sessions)
+	}
+
+	return export, nil
 }
+
+// Dışa aktarma sınırları. Sınırsız bir dışa aktarma, tek bir istekle
+// koleksiyonun tamamını belleğe çeker.
+const (
+	exportAuditLimit   = 1000
+	exportSessionLimit = 500
+)
 
 // RequestAccountDeletion is the resolver for the requestAccountDeletion field.
 func (r *mutationResolver) RequestAccountDeletion(ctx context.Context) (*model.DeletionStatus, error) {
-	return nil, notImplemented("requestAccountDeletion")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, err := r.AccountUC.RequestDeletion(ctx, v.OrgID, v.UserID)
+	if err != nil {
+		return nil, err
+	}
+	return mapDeletionStatus(status), nil
 }
 
 // CancelAccountDeletion is the resolver for the cancelAccountDeletion field.
 func (r *mutationResolver) CancelAccountDeletion(ctx context.Context) (*model.DeletionStatus, error) {
-	return nil, notImplemented("cancelAccountDeletion")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, err := r.AccountUC.CancelDeletion(ctx, v.OrgID, v.UserID)
+	if err != nil {
+		return nil, err
+	}
+	return mapDeletionStatus(status), nil
 }
 
 // Me is the resolver for the me field.
@@ -579,7 +657,15 @@ func (r *queryResolver) AuditLog(ctx context.Context, limit *int, offset *int) (
 
 // DeletionStatus is the resolver for the deletionStatus field.
 func (r *queryResolver) DeletionStatus(ctx context.Context) (*model.DeletionStatus, error) {
-	return nil, notImplemented("deletionStatus")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, err := r.AccountUC.Status(ctx, v.UserID)
+	if err != nil {
+		return nil, err
+	}
+	return mapDeletionStatus(status), nil
 }
 
 // Turns is the resolver for the turns field.

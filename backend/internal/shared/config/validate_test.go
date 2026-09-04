@@ -17,6 +17,7 @@ func productionConfig() *Config {
 		Email:       EmailConfig{Provider: ProviderResend, FromAddress: "noreply@mail.example.com"},
 		GraphQL:     GraphQLConfig{MaxDepth: 12},
 		Token:       TokenConfig{AccessTTL: 15 * time.Minute, RefreshTTL: 720 * time.Hour},
+		Lifecycle:   LifecycleConfig{DeletionGracePeriod: 30 * 24 * time.Hour},
 	}
 }
 
@@ -107,5 +108,22 @@ func TestValidate_RejectsAccessTokenOutlivingRefresh(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("access token refresh'ten uzun olamaz")
+	}
+}
+
+// Sıfır bekleme süresi geliştirmede geçerli (silme zinciri ancak böyle test
+// edilebilir) ama üretimde reddedilmeli: yanlışlıkla "sil" diyen kullanıcının
+// verisini aynı dakikada yok etmek demek.
+func TestValidate_RejectsZeroGracePeriodInProduction(t *testing.T) {
+	cfg := productionConfig()
+	cfg.Lifecycle.DeletionGracePeriod = 0
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("üretimde sıfır bekleme süresi reddedilmeli")
+	}
+
+	cfg.Environment = "development"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("geliştirmede sıfır bekleme süresi kabul edilmeli: %v", err)
 	}
 }

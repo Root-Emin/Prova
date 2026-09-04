@@ -28,6 +28,7 @@ import (
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email"
 	infraGQL "github.com/masterfabric-go/masterfabric/internal/infrastructure/graphql"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/http/router"
+	"github.com/masterfabric-go/masterfabric/internal/infrastructure/jobs"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/llm"
 	infraMongo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo"
 	provaMongoRepo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo/prova"
@@ -186,6 +187,8 @@ func buildDependencies(
 	emailSender notify.Sender,
 ) (router.Dependencies, func()) {
 	noop := func() {}
+	// stopBackgroundJobs, zamanlanmış işleri kapanışta durdurur.
+	var stopBackgroundJobs func()
 
 	deps := router.Dependencies{
 		Logger:             log,
@@ -273,6 +276,7 @@ func buildDependencies(
 	verifyMagicLinkUC := iamUC.NewVerifyMagicLinkUseCase(
 		magicLinkRepo, userRepo, magicLinkTokens, verifyCodeUC,
 		auditRecorder, cfg.Auth.SelfSignup, log)
+	orgLookup := iamAppService.NewOrgLookup(orgUserRepo)
 	deviceChallengeUC := iamUC.NewRequestDeviceChallengeUseCase(
 		deviceChallengeRepo, deviceSignatures, auditRecorder, cfg.Token.DeviceChallengeTTL, log)
 	manageDevicesUC := iamUC.NewManageDevicesUseCase(deviceRepo, denylist, auditRecorder, log)
@@ -343,6 +347,36 @@ func buildDependencies(
 		log.Warn("nesne veritabanı yok; oturum ve içerik akışları devre dışı")
 	}
 
+	// --- Hesap yaşam döngüsü ---
+	//
+	// Dışa aktarma ve kimliksizleştirme, nesne veritabanına port üzerinden
+	// bağlanıyor: kimlik domain'i eğitim içeriğine bağımlı olmamalı.
+	accountDeps := iamUC.AccountDeps{
+		Users:       userRepo,
+		Devices:     deviceRepo,
+		Codes:       loginCodeRepo,
+		MagicLinks:  magicLinkRepo,
+		Audit:       auditRecorder,
+		AuditRepo:   auditRepo,
+		GracePeriod: cfg.Lifecycle.DeletionGracePeriod,
+		Log:         log,
+	}
+	if sessionRepo != nil {
+		accountDeps.Sessions = sessionRepo
+		accountDeps.SessionExport = provaUC.NewSessionExporter(sessionRepo, scoreRepo, orgLookup)
+	}
+	accountUC := iamUC.NewAccountUseCase(accountDeps)
+
+	if cfg.Lifecycle.PurgeEnabled {
+		purgeJob := jobs.NewPurgeJob(accountUC, cfg.Lifecycle.PurgeInterval, log)
+		jobCtx, stopJobs := context.WithCancel(context.Background())
+		go purgeJob.Start(jobCtx)
+		stopBackgroundJobs = stopJobs
+		log.Info("kalıcı silme işi başlatıldı",
+			"interval", cfg.Lifecycle.PurgeInterval,
+			"grace_period", cfg.Lifecycle.DeletionGracePeriod)
+	}
+
 	// --- GraphQL ---
 	resolver := &graph.Resolver{
 		Log:                log,
@@ -352,6 +386,7 @@ func buildDependencies(
 		LogoutUC:           logoutUC,
 		VerifyMagicLinkUC:  verifyMagicLinkUC,
 		DeviceChallengeUC:  deviceChallengeUC,
+		AccountUC:          accountUC,
 		Users:              userRepo,
 		RBAC:               rbacService,
 		AuditRepo:          auditRepo,
@@ -385,6 +420,9 @@ func buildDependencies(
 	}
 
 	cleanup := func() {
+		if stopBackgroundJobs != nil {
+			stopBackgroundJobs()
+		}
 		// Denetim yazımları eşzamansızdır; süreç ölmeden önce beklenir, yoksa
 		// son işlemin kaydı kaybolur.
 		auditRecorder.Wait()

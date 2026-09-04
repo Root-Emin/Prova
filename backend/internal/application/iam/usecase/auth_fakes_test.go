@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,6 +73,58 @@ func (r *fakeUserRepo) Update(_ context.Context, user *model.User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.byID[user.ID] = user
+	return nil
+}
+
+func (r *fakeUserRepo) ListDuePurge(_ context.Context, now time.Time, limit int) ([]*model.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var due []*model.User
+	for _, u := range r.byID {
+		if u.DeletionScheduledAt != nil && !u.DeletionScheduledAt.After(now) && u.DeletedAt == nil {
+			due = append(due, u)
+		}
+	}
+	return due, nil
+}
+
+func (r *fakeUserRepo) Purge(_ context.Context, id uuid.UUID, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[id]
+	if !ok || u.DeletedAt != nil {
+		return domainErr.New(domainErr.ErrNotFound, "user not found", nil)
+	}
+	u.Email, u.FirstName, u.LastName = "", "", ""
+	u.EmailVerifiedAt = nil
+	u.Status = model.UserStatusDeleted
+	deletedAt := at
+	u.DeletedAt = &deletedAt
+	return nil
+}
+
+func (r *fakeUserRepo) RecordFailedAttempt(_ context.Context, id uuid.UUID, threshold int, lockUntil time.Time) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[id]
+	if !ok {
+		return 0, domainErr.New(domainErr.ErrNotFound, "user not found", nil)
+	}
+	u.FailedAttempts++
+	if u.FailedAttempts >= threshold {
+		locked := lockUntil
+		u.LockedUntil = &locked
+	}
+	return u.FailedAttempts, nil
+}
+
+func (r *fakeUserRepo) ClearFailedAttempts(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if u, ok := r.byID[id]; ok {
+		u.FailedAttempts = 0
+		u.LockedUntil = nil
+	}
 	return nil
 }
 
@@ -178,6 +231,19 @@ func (r *fakeCodeRepo) CountSince(_ context.Context, email string, purpose model
 }
 
 func (r *fakeCodeRepo) DeleteExpiredBefore(context.Context, time.Time) (int64, error) { return 0, nil }
+
+func (r *fakeCodeRepo) DeleteByEmail(_ context.Context, email string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	kept := r.codes[:0]
+	for _, c := range r.codes {
+		if !strings.EqualFold(c.Email, email) {
+			kept = append(kept, c)
+		}
+	}
+	r.codes = kept
+	return nil
+}
 
 // --- devices ---
 

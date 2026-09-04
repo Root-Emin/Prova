@@ -9,6 +9,7 @@ import (
 	"github.com/masterfabric-go/masterfabric/graph/model"
 	"github.com/masterfabric-go/masterfabric/graph/scalar"
 	iamDTO "github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
+	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
 	auditModel "github.com/masterfabric-go/masterfabric/internal/domain/audit/model"
 	iamModel "github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 )
@@ -168,4 +169,16 @@ func (r *Resolver) authPayload(ctx context.Context, result *iamDTO.VerifyLoginCo
 		User:           mapUser(user, result.OrganizationID, r.permissionsOf(ctx, user.ID, result.OrganizationID)),
 		Device:         mapPairedDevice(result.Device),
 	}, nil
+}
+
+// mapDeletionStatus, silme durumunu şema tipine çevirir.
+func mapDeletionStatus(s *iamUC.DeletionStatus) *model.DeletionStatus {
+	if s == nil {
+		return nil
+	}
+	return &model.DeletionStatus{
+		RequestedAt: s.RequestedAt,
+		ScheduledAt: s.ScheduledAt,
+		Cancellable: s.Cancellable,
+	}
 }

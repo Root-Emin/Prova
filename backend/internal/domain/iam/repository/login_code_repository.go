@@ -43,4 +43,9 @@ type LoginCodeRepository interface {
 	// DeleteExpiredBefore removes spent rows. Codes are short-lived credentials
 	// and are not audit records; keeping them is only risk.
 	DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error)
+
+	// DeleteByEmail, kalıcı silmede adrese ait kod satırlarını düşürür.
+	// Bir giriş kodu satırı bir adresi bir zaman damgasına bağlar ve
+	// kişisel veridir.
+	DeleteByEmail(ctx context.Context, email string) error
 }
