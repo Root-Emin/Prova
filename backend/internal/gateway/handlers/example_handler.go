@@ -61,7 +61,7 @@ func (h *ExampleProductHandler) handleList(ctx context.Context, endpoint *model.
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"data": products,
+		"data":  products,
 		"count": len(products),
 	})
 

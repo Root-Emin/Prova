@@ -1,0 +1,47 @@
+# gqlgen yapılandırması.
+#
+# Şema tek dosyada tutuluyor: Prova'nın API yüzeyi bir ürünün tamamı kadar ve
+# parçalara bölmek, hangi tipin nerede tanımlandığını aramaya çeviriyor.
+schema:
+  - graph/schema.graphqls
+
+exec:
+  filename: graph/generated.go
+  package: graph
+
+model:
+  filename: graph/model/models_gen.go
+  package: model
+
+resolver:
+  layout: follow-schema
+  dir: graph
+  package: graph
+  filename_template: "{name}.resolvers.go"
+
+# Directive'ler elle yazılıyor: yetki kararı üretilen koda değil, RBAC
+# servisine ait.
+omit_slice_element_pointers: false
+omit_getters: true
+skip_validation: false
+
+autobind: []
+
+models:
+  ID:
+    model:
+      - github.com/99designs/gqlgen/graphql.ID
+  Int:
+    model:
+      - github.com/99designs/gqlgen/graphql.Int
+      - github.com/99designs/gqlgen/graphql.Int64
+      - github.com/99designs/gqlgen/graphql.Int32
+  UUID:
+    model:
+      - github.com/masterfabric-go/masterfabric/graph/scalar.UUID
+  Time:
+    model:
+      - github.com/99designs/gqlgen/graphql.Time
+  JSON:
+    model:
+      - github.com/masterfabric-go/masterfabric/graph/scalar.JSON

@@ -220,8 +220,8 @@ func (p *Pipeline) Enforce(next http.Handler) http.Handler {
 // responseWriter wraps http.ResponseWriter to capture response for interceptors.
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
-	header     http.Header
+	statusCode  int
+	header      http.Header
 	wroteHeader bool
 }
 

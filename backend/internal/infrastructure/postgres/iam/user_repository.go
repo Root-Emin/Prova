@@ -12,6 +12,51 @@ import (
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
 
+// userColumns, her okuma sorgusunun kolon listesi. Tek yerde tutuluyor:
+// kolon eklemek dört ayrı SELECT'i aynı anda değiştirmek zorunda kalmasın.
+const userColumns = `id, email, first_name, last_name, status, email_verified_at, deletion_requested_at, deletion_scheduled_at, deleted_at, locked_until, failed_attempts, created_at, updated_at`
+
+// scanner, pgx.Row ve pgx.Rows'un ortak yüzü.
+type scanner interface{ Scan(dest ...any) error }
+
+// scanUser, satırı modele çevirir.
+//
+// E-posta ve isim alanları nullable okunur: kalıcı silme onları null'a çeker
+// ama satırı bırakır, çünkü denetim kaydı silinmez ve bir kullanıcı kimliğine
+// bağlanabilmelidir. Doğrudan string'e okumak, silinmiş bir hesabı listeleyen
+// her sorguyu hataya çevirirdi.
+func scanUser(row scanner) (*model.User, error) {
+	var (
+		u                          model.User
+		email, firstName, lastName *string
+	)
+	if err := row.Scan(&u.ID, &email, &firstName, &lastName, &u.Status, &u.EmailVerifiedAt,
+		&u.DeletionRequestedAt, &u.DeletionScheduledAt, &u.DeletedAt,
+		&u.LockedUntil, &u.FailedAttempts, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		return nil, err
+	}
+	u.Email = deref(email)
+	u.FirstName = deref(firstName)
+	u.LastName = deref(lastName)
+	return &u, nil
+}
+
+func deref(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// nullIfEmpty, boş metni NULL olarak yazar. Silinen hesapta e-postanın
+// gerçekten null olması gerekir; boş metin "silindi" demek değildir.
+func nullIfEmpty(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 // UserRepo implements repository.UserRepository with PostgreSQL.
 type UserRepo struct {
 	db *pgxpool.Pool
@@ -33,7 +78,8 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO users (id, email, first_name, last_name, status, email_verified_at, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		user.ID, user.Email, user.FirstName, user.LastName, user.Status, user.EmailVerifiedAt, user.CreatedAt, user.UpdatedAt,
+		user.ID, nullIfEmpty(user.Email), nullIfEmpty(user.FirstName), nullIfEmpty(user.LastName),
+		user.Status, user.EmailVerifiedAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
 		return domainErr.New(domainErr.ErrInternal, "failed to create user", err)
@@ -42,40 +88,39 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 }
 
 func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
-	var u model.User
-	err := r.db.QueryRow(ctx,
-		`SELECT id, email, first_name, last_name, status, email_verified_at, created_at, updated_at
-		 FROM users WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Status, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt)
+	u, err := scanUser(r.db.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1`, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domainErr.New(domainErr.ErrNotFound, "user not found", nil)
 		}
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to get user", err)
 	}
-	return &u, nil
+	return u, nil
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
-	var u model.User
-	err := r.db.QueryRow(ctx,
-		`SELECT id, email, first_name, last_name, status, email_verified_at, created_at, updated_at
-		 FROM users WHERE lower(email) = lower($1)`, email,
-	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Status, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt)
+	u, err := scanUser(r.db.QueryRow(ctx,
+		`SELECT `+userColumns+` FROM users WHERE lower(email) = lower($1)`, email))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domainErr.New(domainErr.ErrNotFound, "user not found", nil)
 		}
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to get user by email", err)
 	}
-	return &u, nil
+	return u, nil
 }
 
 func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 	user.UpdatedAt = time.Now().UTC()
 	_, err := r.db.Exec(ctx,
-		`UPDATE users SET email=$1, first_name=$2, last_name=$3, status=$4, email_verified_at=$5, updated_at=$6 WHERE id=$7`,
-		user.Email, user.FirstName, user.LastName, user.Status, user.EmailVerifiedAt, user.UpdatedAt, user.ID,
+		`UPDATE users SET email=$1, first_name=$2, last_name=$3, status=$4, email_verified_at=$5,
+		        deletion_requested_at=$6, deletion_scheduled_at=$7, deleted_at=$8,
+		        locked_until=$9, failed_attempts=$10, updated_at=$11
+		  WHERE id=$12`,
+		nullIfEmpty(user.Email), nullIfEmpty(user.FirstName), nullIfEmpty(user.LastName),
+		user.Status, user.EmailVerifiedAt,
+		user.DeletionRequestedAt, user.DeletionScheduledAt, user.DeletedAt,
+		user.LockedUntil, user.FailedAttempts, user.UpdatedAt, user.ID,
 	)
 	if err != nil {
 		return domainErr.New(domainErr.ErrInternal, "failed to update user", err)
@@ -99,8 +144,7 @@ func (r *UserRepo) List(ctx context.Context, offset, limit int) ([]*model.User, 
 	}
 
 	rows, err := r.db.Query(ctx,
-		`SELECT id, email, first_name, last_name, status, email_verified_at, created_at, updated_at
-		 FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset,
+		`SELECT `+userColumns+` FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset,
 	)
 	if err != nil {
 		return nil, 0, domainErr.New(domainErr.ErrInternal, "failed to list users", err)
@@ -109,11 +153,14 @@ func (r *UserRepo) List(ctx context.Context, offset, limit int) ([]*model.User, 
 
 	var users []*model.User
 	for rows.Next() {
-		var u model.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Status, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		u, err := scanUser(rows)
+		if err != nil {
 			return nil, 0, domainErr.New(domainErr.ErrInternal, "failed to scan user", err)
 		}
-		users = append(users, &u)
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, domainErr.New(domainErr.ErrInternal, "failed to list users", err)
 	}
 	return users, total, nil
 }

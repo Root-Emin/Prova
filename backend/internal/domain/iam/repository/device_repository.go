@@ -29,4 +29,12 @@ type DeviceRepository interface {
 
 	// TouchLastSeen records that the device was used.
 	TouchLastSeen(ctx context.Context, deviceID uuid.UUID, at time.Time) error
+
+	// GetByID returns one device, scoped to its owner.
+	GetByID(ctx context.Context, userID, deviceID uuid.UUID) (*model.Device, error)
+
+	// DeleteByUser drops every device row for a user. A device row ties a
+	// person to a machine and is personal data, so the purge job removes it
+	// rather than anonymising it.
+	DeleteByUser(ctx context.Context, userID uuid.UUID) error
 }

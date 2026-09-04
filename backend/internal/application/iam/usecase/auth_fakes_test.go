@@ -245,6 +245,30 @@ func (r *fakeDeviceRepo) Revoke(_ context.Context, userID, deviceID uuid.UUID, a
 
 func (r *fakeDeviceRepo) TouchLastSeen(context.Context, uuid.UUID, time.Time) error { return nil }
 
+func (r *fakeDeviceRepo) GetByID(_ context.Context, userID, deviceID uuid.UUID) (*model.Device, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, d := range r.devices {
+		if d.ID == deviceID && d.UserID == userID {
+			return d, nil
+		}
+	}
+	return nil, domainErr.New(domainErr.ErrNotFound, "device not found", nil)
+}
+
+func (r *fakeDeviceRepo) DeleteByUser(_ context.Context, userID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	kept := r.devices[:0]
+	for _, d := range r.devices {
+		if d.UserID != userID {
+			kept = append(kept, d)
+		}
+	}
+	r.devices = kept
+	return nil
+}
+
 // --- login code service ---
 
 // fixedCodeService always mints the same code, so tests can assert on it.

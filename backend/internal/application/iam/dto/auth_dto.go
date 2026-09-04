@@ -36,6 +36,10 @@ type DeviceInfo struct {
 	Fingerprint string `json:"fingerprint" validate:"omitempty,min=16,max=128"`
 	Name        string `json:"name" validate:"omitempty,max=255"`
 	Platform    string `json:"platform" validate:"omitempty,max=32"`
+	// PublicKey, cihazın ürettiği anahtar çiftinin genel yarısı (base64,
+	// Ed25519). Yalnızca ilk kayıtta gönderilir; özel anahtar işletim
+	// sisteminin güvenli deposunda kalır ve sunucuya hiç gelmez.
+	PublicKey string `json:"public_key" validate:"omitempty,max=256"`
 }
 
 // VerifyLoginCodeRequest redeems a code for a session.
@@ -43,6 +47,10 @@ type VerifyLoginCodeRequest struct {
 	Email  string      `json:"email" validate:"required,email"`
 	Code   string      `json:"code" validate:"required,min=4,max=12"`
 	Device *DeviceInfo `json:"device,omitempty"`
+	// DeviceSignature, sunucunun verdiği challenge'ın cihaz özel anahtarıyla
+	// imzası (base64). Kayıtlı anahtarı olan cihazlarda zorunludur: parmak
+	// izi kopyalanabilir, imza kopyalanamaz.
+	DeviceSignature string `json:"device_signature" validate:"omitempty,max=256"`
 }
 
 // VerifyLoginCodeResponse is the successful sign-in result.

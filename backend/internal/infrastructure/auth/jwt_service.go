@@ -34,23 +34,51 @@ type customClaims struct {
 	UserID         string   `json:"user_id"`
 	Email          string   `json:"email"`
 	OrganizationID string   `json:"organization_id,omitempty"`
+	DeviceID       string   `json:"device_id,omitempty"`
+	RefreshFamily  string   `json:"refresh_family_id,omitempty"`
 	Roles          []string `json:"roles,omitempty"`
 	Permissions    []string `json:"permissions,omitempty"`
 }
 
-func (s *JWTService) GenerateToken(_ context.Context, claims service.TokenClaims) (string, error) {
+func (s *JWTService) GenerateToken(ctx context.Context, claims service.TokenClaims) (string, error) {
+	return s.GenerateTokenWithTTL(ctx, claims, s.expiration)
+}
+
+// GenerateTokenWithTTL, verilen ömürle token üretir.
+//
+// Access token'ın ömrü JWT_EXPIRATION_HOURS'tan değil TOKEN_ACCESS_TTL
+// değerinden gelir; ikisi ayrı tutuluyor çünkü access token'ın kısa olması
+// refresh rotasyonunun ön koşuludur.
+func (s *JWTService) GenerateTokenWithTTL(_ context.Context, claims service.TokenClaims, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		ttl = s.expiration
+	}
 	now := time.Now()
+	tokenID := claims.TokenID
+	if tokenID == "" {
+		tokenID = uuid.New().String()
+	}
+	deviceID := ""
+	if claims.DeviceID != nil {
+		deviceID = claims.DeviceID.String()
+	}
+	refreshFamily := ""
+	if claims.RefreshFamilyID != nil {
+		refreshFamily = claims.RefreshFamilyID.String()
+	}
 	c := customClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    s.issuer,
 			Subject:   claims.UserID.String(),
-			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiration)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
-			ID:        uuid.New().String(),
+			ID:        tokenID,
 		},
 		UserID:         claims.UserID.String(),
 		Email:          claims.Email,
 		OrganizationID: claims.OrganizationID.String(),
+		DeviceID:       deviceID,
+		RefreshFamily:  refreshFamily,
 		Roles:          claims.Roles,
 		Permissions:    claims.Permissions,
 	}
@@ -82,11 +110,32 @@ func (s *JWTService) ValidateToken(_ context.Context, tokenStr string) (*service
 	userID, _ := uuid.Parse(claims.UserID)
 	orgID, _ := uuid.Parse(claims.OrganizationID)
 
+	var deviceID *uuid.UUID
+	if claims.DeviceID != "" {
+		if parsed, err := uuid.Parse(claims.DeviceID); err == nil {
+			deviceID = &parsed
+		}
+	}
+	var refreshFamily *uuid.UUID
+	if claims.RefreshFamily != "" {
+		if parsed, err := uuid.Parse(claims.RefreshFamily); err == nil {
+			refreshFamily = &parsed
+		}
+	}
+	var expiresAt time.Time
+	if claims.ExpiresAt != nil {
+		expiresAt = claims.ExpiresAt.Time
+	}
+
 	return &service.TokenClaims{
-		UserID:         userID,
-		Email:          claims.Email,
-		OrganizationID: orgID,
-		Roles:          claims.Roles,
-		Permissions:    claims.Permissions,
+		UserID:          userID,
+		Email:           claims.Email,
+		OrganizationID:  orgID,
+		Roles:           claims.Roles,
+		Permissions:     claims.Permissions,
+		TokenID:         claims.ID,
+		DeviceID:        deviceID,
+		RefreshFamilyID: refreshFamily,
+		ExpiresAt:       expiresAt,
 	}, nil
 }

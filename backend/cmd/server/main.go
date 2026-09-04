@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/masterfabric-go/masterfabric/graph"
 	iamAppService "github.com/masterfabric-go/masterfabric/internal/application/iam/service"
 	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
 	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
@@ -21,6 +22,7 @@ import (
 	infraAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/audit"
 	infraAuth "github.com/masterfabric-go/masterfabric/internal/infrastructure/auth"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email"
+	infraGQL "github.com/masterfabric-go/masterfabric/internal/infrastructure/graphql"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/http/router"
 	infraMongo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo"
 	pgAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/audit"
@@ -222,8 +224,10 @@ func buildDependencies(
 		limiter = ratelimit.NewMemoryLimiter()
 	}
 
+	denylist := infraAuth.NewDenylist(redisClient)
+
 	// --- Use case'ler ---
-	_ = iamUC.NewRequestLoginCodeUseCase(iamUC.RequestDeps{
+	requestCodeUC := iamUC.NewRequestLoginCodeUseCase(iamUC.RequestDeps{
 		Users:      userRepo,
 		Codes:      loginCodeRepo,
 		CodeSvc:    loginCodeService,
@@ -234,7 +238,7 @@ func buildDependencies(
 		Log:        log,
 		WebBaseURL: cfg.Token.WebBaseURL,
 	})
-	_ = iamUC.NewVerifyLoginCodeUseCase(iamUC.VerifyDeps{
+	verifyCodeUC := iamUC.NewVerifyLoginCodeUseCase(iamUC.VerifyDeps{
 		Users:       userRepo,
 		Codes:       loginCodeRepo,
 		Devices:     deviceRepo,
@@ -250,7 +254,33 @@ func buildDependencies(
 		Log:         log,
 	})
 
-	_ = rbacService
+	manageDevicesUC := iamUC.NewManageDevicesUseCase(deviceRepo, denylist, auditRecorder, log)
+	logoutUC := iamUC.NewLogoutUseCase(denylist, auditRecorder, cfg.Token.AccessTTL, log)
+
+	// --- GraphQL ---
+	resolver := &graph.Resolver{
+		Log:                log,
+		RequestLoginCodeUC: requestCodeUC,
+		VerifyLoginCodeUC:  verifyCodeUC,
+		ManageDevicesUC:    manageDevicesUC,
+		LogoutUC:           logoutUC,
+		Users:              userRepo,
+		RBAC:               rbacService,
+		AuditRepo:          auditRepo,
+	}
+	deps.GraphQLHandler = infraGQL.NewServer(infraGQL.ServerConfig{
+		Resolver:       resolver,
+		Auth:           jwtService,
+		RBAC:           rbacService,
+		Denylist:       denylist,
+		GraphQL:        cfg.GraphQL,
+		AllowedOrigins: cfg.Server.CORSAllowedOrigins,
+		Log:            log,
+	})
+	if cfg.GraphQL.PlaygroundEnabled {
+		deps.PlaygroundHandler = infraGQL.NewPlayground()
+	}
+
 	_ = mongoDB
 
 	cleanup := func() {
