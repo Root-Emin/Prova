@@ -86,6 +86,11 @@ type DeviceChallengeResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// RefreshTokenRequest exchanges a refresh token for a new pair.
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
 // PairedDevice describes the device bound to the account during this sign-in.
 type PairedDevice struct {
 	ID       uuid.UUID `json:"id"`

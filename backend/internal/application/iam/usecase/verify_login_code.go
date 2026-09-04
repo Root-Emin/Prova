@@ -59,9 +59,16 @@ type VerifyDeps struct {
 	Limiter     ratelimit.Limiter
 	EventBus    events.EventBus
 	Audit       auditService.Recorder
-	Cfg         config.AuthConfig
-	JWTCfg      config.JWTConfig
-	Log         *slog.Logger
+	// Refresh, girişte ilk yenileme token'ını üretir. Nil ise yanıt yalnızca
+	// access token taşır ve rotasyon devre dışı kalır.
+	Refresh *RefreshTokenUseCase
+	// Minter, access token'ı kısa ömürle üretir. Nil ise Auth'un varsayılan
+	// ömrü kullanılır.
+	Minter   TokenMinter
+	Cfg      config.AuthConfig
+	JWTCfg   config.JWTConfig
+	TokenCfg config.TokenConfig
+	Log      *slog.Logger
 }
 
 // NewVerifyLoginCodeUseCase wires the use case.
@@ -110,6 +117,7 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 
 	if !uc.CodeSvc.Matches(record.CodeDigest, req.Code) {
 		uc.recordFailedAttempt(ctx, record, now)
+		uc.chargeAccountAttempt(ctx, email, now)
 		uc.Audit.Record(ctx, auditService.Entry{
 			Action:       auditService.ActionLoginFailed,
 			ResourceType: "login_code",
@@ -130,8 +138,34 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 	if err != nil {
 		return nil, err
 	}
-	if !user.IsActive() {
+
+	// Kilitli hesap, kodu doğru bilse bile giremez. Yanıt, geçersiz kodla
+	// aynı: kilidi ayrı bir hata olarak bildirmek, saldırgana hangi
+	// adreslerin var olduğunu ve hangilerine ulaştığını söylerdi — kod
+	// isteme ucunda özenle kapatılan kapının yanına ikinci bir kapı açmak
+	// olurdu.
+	if user.IsLocked(now) {
+		uc.Log.WarnContext(ctx, "kilitli hesaba giriş denemesi", "user_id", user.ID)
+		uc.Audit.Record(ctx, auditService.Entry{
+			UserID:       &user.ID,
+			Action:       auditService.ActionLoginLocked,
+			ResourceType: "user",
+			ResourceID:   user.ID.String(),
+			IPAddress:    requestIP,
+		})
+		return nil, errInvalidCode()
+	}
+
+	if !user.IsActive() && !user.IsPendingDeletion() {
 		return nil, domainErr.New(domainErr.ErrForbidden, "account is not active", nil)
+	}
+
+	// Başarılı giriş sayacı sıfırlar: kilit ardışık başarısızlıkları
+	// ölçüyor, ömür boyu toplamı değil.
+	if user.FailedAttempts > 0 || user.LockedUntil != nil {
+		if err := uc.Users.ClearFailedAttempts(ctx, user.ID); err != nil {
+			uc.Log.ErrorContext(ctx, "deneme sayacı sıfırlanamadı", "user_id", user.ID, "error", err)
+		}
 	}
 
 	return uc.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, now, "code")
@@ -174,12 +208,35 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 		deviceID = &id
 	}
 
-	token, err := uc.Auth.GenerateToken(ctx, service.TokenClaims{
-		UserID:         user.ID,
-		Email:          user.Email,
-		OrganizationID: orgID,
-		DeviceID:       deviceID,
-	})
+	// Refresh token önce üretiliyor: ailesinin kimliği access token'a
+	// yazılacak, ve çıkış işlemi o kimlik olmadan aileyi iptal edemez.
+	var (
+		refreshToken string
+		familyID     *uuid.UUID
+	)
+	if uc.Refresh != nil {
+		raw, family, err := uc.Refresh.Issue(ctx, user.ID, orgID, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		refreshToken = raw
+		familyID = &family
+	}
+
+	claims := service.TokenClaims{
+		UserID:          user.ID,
+		Email:           user.Email,
+		OrganizationID:  orgID,
+		DeviceID:        deviceID,
+		RefreshFamilyID: familyID,
+	}
+
+	var token string
+	if uc.Minter != nil && uc.TokenCfg.AccessTTL > 0 {
+		token, err = uc.Minter.GenerateTokenWithTTL(ctx, claims, uc.TokenCfg.AccessTTL)
+	} else {
+		token, err = uc.Auth.GenerateToken(ctx, claims)
+	}
 	if err != nil {
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to generate token", err)
 	}
@@ -217,7 +274,8 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 
 	return &dto.VerifyLoginCodeResponse{
 		Token:          token,
-		ExpiresAt:      now.Add(time.Duration(uc.JWTCfg.ExpirationHours) * time.Hour),
+		RefreshToken:   refreshToken,
+		ExpiresAt:      now.Add(uc.accessLifetime()),
 		OrganizationID: orgID,
 		User: dto.UserInfo{
 			ID:        user.ID,
@@ -229,6 +287,14 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 		},
 		Device: paired,
 	}, nil
+}
+
+// accessLifetime, access token'ın ömrü.
+func (uc *VerifyLoginCodeUseCase) accessLifetime() time.Duration {
+	if uc.TokenCfg.AccessTTL > 0 {
+		return uc.TokenCfg.AccessTTL
+	}
+	return time.Duration(uc.JWTCfg.ExpirationHours) * time.Hour
 }
 
 // resolveOrg, kullanıcının etkin organizasyonunu döndürür.
@@ -260,6 +326,38 @@ func (uc *VerifyLoginCodeUseCase) recordFailedAttempt(ctx context.Context, recor
 		if err := uc.Codes.MarkConsumed(ctx, record.ID, now); err != nil {
 			uc.Log.ErrorContext(ctx, "failed to burn exhausted login code", "code_id", record.ID, "error", err)
 		}
+	}
+}
+
+// chargeAccountAttempt, yanlış kodu hesabın kilit sayacına yazar.
+//
+// Kod başına deneme bütçesi tek bir kodu korur; bu sayaç hesabı korur.
+// Saldırgan her denemede yeni kod isteyerek kod bütçesini sıfırlayabilir,
+// ama hesap sayacını sıfırlayamaz.
+func (uc *VerifyLoginCodeUseCase) chargeAccountAttempt(ctx context.Context, email string, now time.Time) {
+	if uc.TokenCfg.MaxFailedAttempts <= 0 {
+		return
+	}
+	user, err := uc.Users.GetByEmail(ctx, email)
+	if err != nil {
+		// Bilinmeyen adres için sayaç yok; bu, adresin var olmadığını
+		// dışarıya sızdırmaz çünkü yanıt her iki durumda da aynı.
+		return
+	}
+	attempts, err := uc.Users.RecordFailedAttempt(ctx, user.ID,
+		uc.TokenCfg.MaxFailedAttempts, now.Add(uc.TokenCfg.LockDuration))
+	if err != nil {
+		uc.Log.ErrorContext(ctx, "başarısız deneme kaydedilemedi", "user_id", user.ID, "error", err)
+		return
+	}
+	if attempts >= uc.TokenCfg.MaxFailedAttempts {
+		uc.Audit.Record(ctx, auditService.Entry{
+			UserID:       &user.ID,
+			Action:       auditService.ActionLoginLocked,
+			ResourceType: "user",
+			ResourceID:   user.ID.String(),
+			Metadata:     map[string]any{"attempts": attempts},
+		})
 	}
 }
 

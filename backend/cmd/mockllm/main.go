@@ -31,6 +31,10 @@ type state struct {
 	mu     sync.Mutex
 	broken map[string]bool
 	calls  map[string]int
+	// lastUser, en son alınan kullanıcı mesajı. Maskelemenin gerçekten
+	// giden kopyada yapıldığını doğrulamanın tek yolu, sağlayıcının ne
+	// gördüğüne bakmak.
+	lastUser string
 }
 
 func main() {
@@ -45,6 +49,7 @@ func main() {
 	mux.HandleFunc("/_control/fail", s.setBroken(true))
 	mux.HandleFunc("/_control/heal", s.setBroken(false))
 	mux.HandleFunc("/_control/stats", s.stats)
+	mux.HandleFunc("/_control/last-prompt", s.lastPrompt)
 	mux.HandleFunc("/_control/reset", s.reset)
 
 	log.Printf("mock llm dinliyor: %s", *addr)
@@ -72,9 +77,12 @@ func (s *state) completions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, userMessages := splitMessages(req)
+
 	s.mu.Lock()
 	s.calls[req.Model]++
 	broken := s.broken[req.Model]
+	s.lastUser = userMessages
 	s.mu.Unlock()
 
 	if broken {
@@ -273,6 +281,20 @@ func (s *state) setBroken(broken bool) http.HandlerFunc {
 	}
 }
 
+// lastPrompt, sağlayıcının gördüğü son kullanıcı mesajını döndürür.
+//
+// Doğrulama betiği bunu okuyor: maskelemenin YALNIZCA giden kopyada
+// yapıldığını göstermek için hem burayı hem transkripti karşılaştırmak
+// gerekiyor.
+func (s *state) lastPrompt(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	last := s.lastUser
+	s.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"prompt": last})
+}
+
 func (s *state) stats(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	snapshot := make(map[string]int, len(s.calls))
@@ -289,6 +311,7 @@ func (s *state) reset(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	s.broken = map[string]bool{}
 	s.calls = map[string]int{}
+	s.lastUser = ""
 	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }

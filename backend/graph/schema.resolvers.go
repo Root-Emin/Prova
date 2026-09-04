@@ -75,7 +75,11 @@ func (r *mutationResolver) RequestDeviceChallenge(ctx context.Context, input mod
 
 // RefreshToken is the resolver for the refreshToken field.
 func (r *mutationResolver) RefreshToken(ctx context.Context, input model.RefreshTokenInput) (*model.AuthPayload, error) {
-	return nil, notImplemented("refreshToken")
+	result, err := r.RefreshTokenUC.Execute(ctx, iamDTO.RefreshTokenRequest{RefreshToken: input.RefreshToken})
+	if err != nil {
+		return nil, err
+	}
+	return r.authPayload(ctx, result)
 }
 
 // Logout is the resolver for the logout field.

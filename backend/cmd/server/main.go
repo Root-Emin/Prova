@@ -255,6 +255,20 @@ func buildDependencies(
 		MagicLinks: magicLinkIssuer,
 		WebBaseURL: cfg.Token.WebBaseURL,
 	})
+	refreshRepo := pgIam.NewRefreshTokenRepo(db)
+	refreshUC := iamUC.NewRefreshTokenUseCase(iamUC.RefreshDeps{
+		Tokens:     refreshRepo,
+		Users:      userRepo,
+		Devices:    deviceRepo,
+		Minter:     jwtService,
+		Hasher:     magicLinkTokens,
+		Denylist:   denylist,
+		Audit:      auditRecorder,
+		AccessTTL:  cfg.Token.AccessTTL,
+		RefreshTTL: cfg.Token.RefreshTTL,
+		Log:        log,
+	})
+
 	verifyCodeUC := iamUC.NewVerifyLoginCodeUseCase(iamUC.VerifyDeps{
 		Users:       userRepo,
 		Codes:       loginCodeRepo,
@@ -268,8 +282,11 @@ func buildDependencies(
 		Limiter:     limiter,
 		EventBus:    eventBus,
 		Audit:       auditRecorder,
+		Refresh:     refreshUC,
+		Minter:      jwtService,
 		Cfg:         cfg.Auth,
 		JWTCfg:      cfg.JWT,
+		TokenCfg:    cfg.Token,
 		Log:         log,
 	})
 
@@ -322,7 +339,11 @@ func buildDependencies(
 				CircuitThreshold:   cfg.LLM.CircuitThreshold,
 				CircuitCooldown:    cfg.LLM.CircuitCooldown,
 			}),
-			nil, // PII maskeleyici Faz 9'da bağlanıyor
+			// PII maskeleyici LLM hattına burada takılıyor. Maskeleme
+			// YALNIZCA giden kopyada: transkript orijinal metni tutar,
+			// çünkü "çalışan kişisel veri ifşa etti mi" sorusu ancak
+			// orijinal metinle cevaplanabilir.
+			llm.NewMasker(),
 			llm.NewEnvKeys(),
 			log,
 		)
@@ -356,6 +377,7 @@ func buildDependencies(
 		Devices:     deviceRepo,
 		Codes:       loginCodeRepo,
 		MagicLinks:  magicLinkRepo,
+		Refresh:     refreshRepo,
 		Audit:       auditRecorder,
 		AuditRepo:   auditRepo,
 		GracePeriod: cfg.Lifecycle.DeletionGracePeriod,
@@ -387,6 +409,7 @@ func buildDependencies(
 		VerifyMagicLinkUC:  verifyMagicLinkUC,
 		DeviceChallengeUC:  deviceChallengeUC,
 		AccountUC:          accountUC,
+		RefreshTokenUC:     refreshUC,
 		Users:              userRepo,
 		RBAC:               rbacService,
 		AuditRepo:          auditRepo,
