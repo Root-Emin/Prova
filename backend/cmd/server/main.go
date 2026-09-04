@@ -232,6 +232,10 @@ func buildDependencies(
 	}
 
 	denylist := infraAuth.NewDenylist(redisClient)
+	magicLinkRepo := pgIam.NewMagicLinkRepo(db)
+	magicLinkTokens := infraAuth.NewMagicLinkService()
+	magicLinkIssuer := iamUC.NewMagicLinkIssuer(
+		magicLinkRepo, userRepo, magicLinkTokens, cfg.Token.MagicLinkTTL, log)
 
 	// --- Use case'ler ---
 	requestCodeUC := iamUC.NewRequestLoginCodeUseCase(iamUC.RequestDeps{
@@ -243,6 +247,7 @@ func buildDependencies(
 		Audit:      auditRecorder,
 		Cfg:        cfg.Auth,
 		Log:        log,
+		MagicLinks: magicLinkIssuer,
 		WebBaseURL: cfg.Token.WebBaseURL,
 	})
 	verifyCodeUC := iamUC.NewVerifyLoginCodeUseCase(iamUC.VerifyDeps{
@@ -261,6 +266,9 @@ func buildDependencies(
 		Log:         log,
 	})
 
+	verifyMagicLinkUC := iamUC.NewVerifyMagicLinkUseCase(
+		magicLinkRepo, userRepo, magicLinkTokens, verifyCodeUC,
+		auditRecorder, cfg.Auth.SelfSignup, log)
 	manageDevicesUC := iamUC.NewManageDevicesUseCase(deviceRepo, denylist, auditRecorder, log)
 	logoutUC := iamUC.NewLogoutUseCase(denylist, auditRecorder, cfg.Token.AccessTTL, log)
 
@@ -335,6 +343,7 @@ func buildDependencies(
 		VerifyLoginCodeUC:  verifyCodeUC,
 		ManageDevicesUC:    manageDevicesUC,
 		LogoutUC:           logoutUC,
+		VerifyMagicLinkUC:  verifyMagicLinkUC,
 		Users:              userRepo,
 		RBAC:               rbacService,
 		AuditRepo:          auditRepo,

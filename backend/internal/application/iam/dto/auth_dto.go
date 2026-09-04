@@ -67,6 +67,13 @@ type VerifyLoginCodeResponse struct {
 	Device         *PairedDevice `json:"device,omitempty"`
 }
 
+// VerifyMagicLinkRequest redeems a one-time link for a session.
+type VerifyMagicLinkRequest struct {
+	Token           string      `json:"token" validate:"required"`
+	Device          *DeviceInfo `json:"device,omitempty"`
+	DeviceSignature string      `json:"device_signature" validate:"omitempty,max=256"`
+}
+
 // PairedDevice describes the device bound to the account during this sign-in.
 type PairedDevice struct {
 	ID       uuid.UUID `json:"id"`

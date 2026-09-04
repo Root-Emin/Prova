@@ -48,7 +48,15 @@ func (r *mutationResolver) VerifyLoginCode(ctx context.Context, input model.Veri
 
 // VerifyMagicLink is the resolver for the verifyMagicLink field.
 func (r *mutationResolver) VerifyMagicLink(ctx context.Context, input model.VerifyMagicLinkInput) (*model.AuthPayload, error) {
-	return nil, notImplemented("verifyMagicLink")
+	result, err := r.VerifyMagicLinkUC.Execute(ctx, iamDTO.VerifyMagicLinkRequest{
+		Token:           input.Token,
+		Device:          mapDeviceInput(input.Device),
+		DeviceSignature: derefString(input.DeviceSignature),
+	}, clientIP(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return r.authPayload(ctx, result)
 }
 
 // RequestDeviceChallenge is the resolver for the requestDeviceChallenge field.

@@ -43,7 +43,7 @@ func (c *Config) Validate() error {
 		}
 		if strings.EqualFold(strings.TrimSpace(c.Email.Provider), ProviderNone) {
 			problems = append(problems, errors.New(
-				"EMAIL_PROVIDER=none; giriş paroleasizdir, e-posta teslimi olmadan hiç kimse "+
+				"EMAIL_PROVIDER=none; giriş parolasızdır, e-posta teslimi olmadan hiç kimse "+
 					"sisteme giremez ama sunucu çalışıyor görünür"))
 		}
 		if strings.TrimSpace(c.Email.FromAddress) == "" {

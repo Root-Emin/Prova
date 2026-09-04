@@ -14,6 +14,7 @@ import (
 	notifyModel "github.com/masterfabric-go/masterfabric/internal/domain/notification/model"
 	notify "github.com/masterfabric-go/masterfabric/internal/domain/notification/service"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email/resend"
+	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email/smtp"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 )
 
@@ -30,6 +31,8 @@ func New(cfg config.EmailConfig) (notify.Sender, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderResend, "":
 		return resend.New(cfg)
+	case ProviderSMTP:
+		return smtp.New(cfg)
 	case ProviderNone:
 		return Disabled{}, nil
 	default:
