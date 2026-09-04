@@ -10,7 +10,7 @@ function PrivacyNotice({ className }: { className?: string }) {
   return (
     <section
       className={cn(
-        "flex gap-3 rounded-lg border border-line-strong bg-sage px-4 py-3",
+        "flex gap-3 rounded-lg border border-line-strong bg-tint px-4 py-3",
         className
       )}
     >

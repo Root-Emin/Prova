@@ -20,7 +20,7 @@ export default function LlmRoutingPage() {
 
       <RoutingChart data={modelUsages} />
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="min-w-0 rounded-lg border border-border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -49,7 +49,7 @@ export default function LlmRoutingPage() {
 
       <section className="space-y-3">
         <h2 className="font-heading text-lg">Güçlü modele geçişler</h2>
-        <div className="rounded-lg border border-border bg-card">
+        <div className="min-w-0 rounded-lg border border-border bg-card">
           <Table>
             <TableHeader>
               <TableRow>

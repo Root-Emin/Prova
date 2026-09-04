@@ -330,3 +330,55 @@ func orEmpty(items []string) []string {
 	}
 	return items
 }
+
+func mapRoutingStats(s *provaModel.RoutingStats) *model.RoutingStats {
+	if s == nil {
+		return nil
+	}
+	tiers := make([]*model.TierStats, 0, len(s.PerTier))
+	for _, t := range s.PerTier {
+		tiers = append(tiers, &model.TierStats{
+			Tier:         mapTier(t.Tier),
+			Calls:        t.Calls,
+			AvgLatencyMs: t.AvgLatencyMs,
+			CostUsd:      t.CostUSD,
+			InputTokens:  t.InputTokens,
+			OutputTokens: t.OutputTokens,
+		})
+	}
+	return &model.RoutingStats{
+		PerTier:          tiers,
+		FailoverCount:    s.FailoverCount,
+		TotalCostUsd:     s.TotalCostUSD,
+		AllStrongCostUsd: s.AllStrongCostUSD,
+		SavingsPercent:   s.SavingsPercent,
+	}
+}
+
+func mapRoutingRecords(records []*provaModel.RoutingRecord) []*model.RoutingRecord {
+	out := make([]*model.RoutingRecord, 0, len(records))
+	for _, rec := range records {
+		if rec == nil {
+			continue
+		}
+		item := &model.RoutingRecord{
+			ID:           rec.ID,
+			SessionID:    rec.SessionID,
+			Tier:         mapTier(rec.Tier),
+			Rule:         string(rec.Rule),
+			Model:        rec.Model,
+			LatencyMs:    rec.LatencyMs,
+			InputTokens:  rec.InputTokens,
+			OutputTokens: rec.OutputTokens,
+			CostUsd:      rec.CostUSD,
+			Success:      rec.Success,
+			CreatedAt:    rec.CreatedAt,
+		}
+		if rec.Error != "" {
+			errText := rec.Error
+			item.Error = &errText
+		}
+		out = append(out, item)
+	}
+	return out
+}

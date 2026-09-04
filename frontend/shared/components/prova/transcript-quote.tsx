@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 
 /**
  * Evidence quote pulled from the transcript. Visually distinct from system
- * copy: 3px brand-green rule on the left, sage surface, mono font.
+ * copy: 3px ember rule on the left, tinted surface, mono font.
  */
 function TranscriptQuote({
   speaker,

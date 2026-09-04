@@ -409,12 +409,28 @@ func (r *queryResolver) LlmProfiles(ctx context.Context) ([]*model.LLMProfile, e
 
 // RoutingStats is the resolver for the routingStats field.
 func (r *queryResolver) RoutingStats(ctx context.Context, from *time.Time, to *time.Time) (*model.RoutingStats, error) {
-	return nil, notImplemented("routingStats")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := r.RoutingStatsUC.Execute(ctx, scopeOf(v), from, to)
+	if err != nil {
+		return nil, err
+	}
+	return mapRoutingStats(stats), nil
 }
 
 // RoutingRecords is the resolver for the routingRecords field.
 func (r *queryResolver) RoutingRecords(ctx context.Context, sessionID *uuid.UUID, limit *int) ([]*model.RoutingRecord, error) {
-	return nil, notImplemented("routingRecords")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records, err := r.RoutingRepo.List(ctx, scopeOf(v), sessionID, clampLimit(intOrDefault(limit, 50), 50, 500))
+	if err != nil {
+		return nil, err
+	}
+	return mapRoutingRecords(records), nil
 }
 
 // AuditLog is the resolver for the auditLog field.

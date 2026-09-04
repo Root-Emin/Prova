@@ -15,6 +15,12 @@ type RubricStatusView = {
   border: string
 }
 
+/**
+ * The palette holds four colours, so the states are not separated by hue but
+ * by fill weight: unevaluated is a quiet outline, passed is a solid slate
+ * fill, partial is an ember outline, failed is a solid ember fill. Icon and
+ * label always ride along — see .notes/DESIGN.md.
+ */
 export const rubricStatusView: Record<RubricStatus, RubricStatusView> = {
   unevaluated: {
     label: "Değerlendirilmedi",
@@ -26,23 +32,23 @@ export const rubricStatusView: Record<RubricStatus, RubricStatusView> = {
   passed: {
     label: "Geçti",
     icon: Check,
-    text: "text-pass",
-    surface: "bg-pass/10",
-    border: "border-pass/35",
+    text: "text-primary-foreground",
+    surface: "bg-pass",
+    border: "border-pass",
   },
   partial: {
     label: "Kısmi",
     icon: AlertTriangle,
-    text: "text-partial",
-    surface: "bg-partial/10",
-    border: "border-partial/35",
+    text: "text-foreground",
+    surface: "bg-partial/20",
+    border: "border-partial",
   },
   failed: {
     label: "Kaldı",
     icon: X,
-    text: "text-fail",
-    surface: "bg-fail/10",
-    border: "border-fail/35",
+    text: "text-foreground",
+    surface: "bg-fail",
+    border: "border-fail",
   },
 }
 

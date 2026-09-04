@@ -268,15 +268,16 @@ func buildDependencies(
 	// MongoDB yoksa Prova akışları hiç bağlanmaz. Yarım bağlanmış bir oturum
 	// akışı, kullanıcıya oynanabilir görünüp ilk konuşma sırasında çökerdi.
 	var (
-		sessionUC   *provaUC.SessionUseCase
-		broker      *realtime.SessionBroker
-		sessionRepo *provaMongoRepo.SessionRepo
-		scoreRepo   *provaMongoRepo.ScoreRepo
-		charRepo    *provaMongoRepo.CharacterRepo
-		scenRepo    *provaMongoRepo.ScenarioRepo
-		rubRepo     *provaMongoRepo.RubricRepo
-		profileRepo *provaMongoRepo.LLMProfileRepo
-		routingRepo *provaMongoRepo.RoutingRepo
+		sessionUC      *provaUC.SessionUseCase
+		routingStatsUC *provaUC.RoutingStatsUseCase
+		broker         *realtime.SessionBroker
+		sessionRepo    *provaMongoRepo.SessionRepo
+		scoreRepo      *provaMongoRepo.ScoreRepo
+		charRepo       *provaMongoRepo.CharacterRepo
+		scenRepo       *provaMongoRepo.ScenarioRepo
+		rubRepo        *provaMongoRepo.RubricRepo
+		profileRepo    *provaMongoRepo.LLMProfileRepo
+		routingRepo    *provaMongoRepo.RoutingRepo
 	)
 	if mongoDB != nil {
 		charRepo = provaMongoRepo.NewCharacterRepo(mongoDB.Database)
@@ -292,11 +293,16 @@ func buildDependencies(
 			profileRepo,
 			routingRepo,
 			llm.NewClient(cfg.LLM.RequestTimeout),
-			provaAppService.NewRuleRouter(cfg.LLM.LongInputThreshold),
+			provaAppService.NewRuleRouter(provaAppService.RouterConfig{
+				LongInputThreshold: cfg.LLM.LongInputThreshold,
+				CircuitThreshold:   cfg.LLM.CircuitThreshold,
+				CircuitCooldown:    cfg.LLM.CircuitCooldown,
+			}),
 			nil, // PII maskeleyici Faz 9'da bağlanıyor
 			llm.NewEnvKeys(),
 			log,
 		)
+		routingStatsUC = provaUC.NewRoutingStatsUseCase(routingRepo, profileRepo)
 		sessionUC = provaUC.NewSessionUseCase(provaUC.SessionDeps{
 			Sessions:   sessionRepo,
 			Scores:     scoreRepo,
@@ -331,6 +337,7 @@ func buildDependencies(
 		RubricRepo:     orNilRubric(rubRepo),
 		LLMProfileRepo: orNilProfile(profileRepo),
 		RoutingRepo:    orNilRouting(routingRepo),
+		RoutingStatsUC: routingStatsUC,
 		Broker:         broker,
 	}
 	deps.GraphQLHandler = infraGQL.NewServer(infraGQL.ServerConfig{

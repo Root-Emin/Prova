@@ -32,7 +32,7 @@ export function DeviceTable({
   onRemove: (id: string) => void
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="min-w-0 rounded-lg border border-border bg-card">
       <Table>
         <TableHeader>
           <TableRow>

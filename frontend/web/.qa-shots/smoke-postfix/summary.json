@@ -1,0 +1,46 @@
+{
+  "passed": 8,
+  "failed": 0,
+  "checks": [
+    {
+      "id": 1,
+      "status": "pass",
+      "detail": "Statuses: {\"/\":200,\"/login\":200,\"/register\":200,\"/verify\":200,\"/sessions\":200}"
+    },
+    {
+      "id": 2,
+      "status": "pass",
+      "detail": "OK: trigger+header, cards=4 values=[\"12\",\"%64\",\"3\",\"2\",\"Mevzuat değişti, 2 sertifika eski rubrikle verildi\"], no persistent sidebar, readable"
+    },
+    {
+      "id": 3,
+      "status": "pass",
+      "detail": "OK: table 1086>340, tabs wrap found, no full sidebar"
+    },
+    {
+      "id": 4,
+      "status": "pass",
+      "detail": "OK: stayed on /login, error has Geçerli bir e-posta, submit BUTTON"
+    },
+    {
+      "id": 5,
+      "status": "pass",
+      "detail": "OK: errors=[\"*\",\"Ad soyad gerekli\",\"Geçerli bir e-posta girin\",\"Doğrulama kodu gönder\"], no Link CTA to /verify"
+    },
+    {
+      "id": 6,
+      "status": "pass",
+      "detail": "OK: error \"6 haneli kodu girin\", Doğrula BUTTON type=submit"
+    },
+    {
+      "id": 7,
+      "status": "pass",
+      "detail": "none"
+    },
+    {
+      "id": 8,
+      "status": "pass",
+      "detail": "OK: sidebar visible width=220"
+    }
+  ]
+}

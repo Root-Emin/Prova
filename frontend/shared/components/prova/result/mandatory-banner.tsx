@@ -12,11 +12,11 @@ export function MandatoryBanner({
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-lg border border-fail/40 bg-fail/10 px-4 py-3"
+      className="flex items-start gap-3 rounded-lg border border-fail bg-fail px-4 py-3"
     >
-      <X size={20} className="mt-0.5 shrink-0 text-fail" aria-hidden />
+      <X size={20} className="mt-0.5 shrink-0 text-foreground" aria-hidden />
       <div>
-        <p className="font-heading text-sm font-semibold text-fail">
+        <p className="font-heading text-sm font-semibold text-foreground">
           Zorunlu kriter düştü — sonuç: kaldı
         </p>
         <p className="mt-1 text-sm leading-relaxed text-foreground">

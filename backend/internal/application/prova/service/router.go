@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 )
@@ -15,14 +16,36 @@ type RuleRouter struct {
 	// yönlendirir. Hızlı modeller uzun bağlamda gözle görülür şekilde bozulur
 	// ve o bozulma karakterin tutarsızlaşması olarak görünür.
 	LongInputThreshold int
+
+	breakers *breakers
 }
 
-// NewRuleRouter wires the router.
-func NewRuleRouter(longInputThreshold int) *RuleRouter {
-	if longInputThreshold <= 0 {
-		longInputThreshold = defaultLongInputThreshold
+// RouterConfig, yönlendiricinin ayarları.
+type RouterConfig struct {
+	LongInputThreshold int
+	// CircuitThreshold, devrenin açılması için gereken ardışık hata sayısı.
+	CircuitThreshold int
+	// CircuitCooldown, devre açıldıktan sonra tek deneme yapılana kadar
+	// geçen süre.
+	CircuitCooldown time.Duration
+	// Now, test edilebilirlik için saat kaynağı. Boşsa time.Now.
+	Now func() time.Time
+}
+
+// NewRuleRouter wires the router with its circuit breakers.
+func NewRuleRouter(cfg RouterConfig) *RuleRouter {
+	threshold := cfg.LongInputThreshold
+	if threshold <= 0 {
+		threshold = defaultLongInputThreshold
 	}
-	return &RuleRouter{LongInputThreshold: longInputThreshold}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &RuleRouter{
+		LongInputThreshold: threshold,
+		breakers:           newBreakers(cfg.CircuitThreshold, cfg.CircuitCooldown, now),
+	}
 }
 
 // defaultLongInputThreshold, yapılandırma verilmediğinde uygulanan eşik.
@@ -44,20 +67,32 @@ func (r *RuleRouter) Route(_ context.Context, in RouteInput) (model.Tier, model.
 		return model.TierStrong, model.RuleMandatorySignal
 	}
 
-	// 3. Girdi çok uzunsa güçlüye.
+	// 3. Hızlı kademenin devresi açıksa güçlüye. Kural sırası burada
+	//    önemli: uzun girdi kuralından ÖNCE geliyor, çünkü devre açıkken
+	//    girdinin uzunluğunun bir önemi yok — hızlı kademe zaten
+	//    kullanılamaz durumda ve denemek yalnızca gecikme ekler.
+	if !r.breakers.fast.allow() {
+		return model.TierStrong, model.RuleFailover
+	}
+
+	// 4. Girdi çok uzunsa güçlüye.
 	if in.InputLength > r.LongInputThreshold {
 		return model.TierStrong, model.RuleLongInput
 	}
 
-	// 4. Diğer her durum hızlıya: konuşma sırasının olağan yolu, ve
+	// 5. Diğer her durum hızlıya: konuşma sırasının olağan yolu, ve
 	//    tasarrufun tamamı buradan geliyor.
 	return model.TierFast, model.RuleDefault
 }
 
-// ReportResult implements Router. Devre kesici Faz 4'te bu sayaca bağlanıyor.
-func (r *RuleRouter) ReportResult(model.Tier, bool) {}
+// ReportResult implements Router.
+func (r *RuleRouter) ReportResult(tier model.Tier, success bool) {
+	r.breakers.forTier(tier).report(success)
+}
 
 // IsOpen implements Router.
-func (r *RuleRouter) IsOpen(model.Tier) bool { return false }
+func (r *RuleRouter) IsOpen(tier model.Tier) bool {
+	return r.breakers.forTier(tier).isOpen()
+}
 
 var _ Router = (*RuleRouter)(nil)

@@ -17,7 +17,7 @@ export default function AuditLogPage() {
         description="Değiştirilemez kayıt. Puan ezme, sürüm yayınlama ve veri silme işlemleri buraya düşer."
       />
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="min-w-0 rounded-lg border border-border bg-card">
         <Table>
           <TableHeader>
             <TableRow>

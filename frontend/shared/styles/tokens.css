@@ -1,5 +1,11 @@
 /* Prova tasarım token'ları — .notes/DESIGN.md'nin tek kod karşılığı.
-   Renk hex'leri SADECE bu dosyada bulunur. Başka hiçbir dosyada hex yazılmaz. */
+   Renk hex'leri SADECE bu dosyada bulunur. Başka hiçbir dosyada hex yazılmaz.
+
+   Arayüzün tamamı dört renkten türer:
+     #EAEFEF · #BFC9D1 · #25343F · #FF9B51
+   Ara tonlar yeni hex yazılarak değil, bu dördünün color-mix'iyle üretilir.
+   Tek istisna persona renkleridir; illüstrasyon PNG'lerinden örneklenmiştir
+   ve o görsellere bağlıdır (aşağıda ayrıca işaretli). */
 
 /* Dark mode YOK. Tailwind'in varsayılan dark: davranışı işletim sistemi
    tercihine bakar; buradaki tanım onu asla eşleşmeyen bir sınıfa bağlar. */
@@ -32,11 +38,26 @@
 
   /* Prova'ya özel roller */
   --color-line-strong: var(--line-strong);
-  --color-sage: var(--sage);
+  --color-tint: var(--tint);
+  --color-ember: var(--ember);
   --color-brand-hover: var(--brand-hover);
   --color-pass: var(--pass);
   --color-partial: var(--partial);
   --color-fail: var(--fail);
+
+  /* Persona kişilik renkleri */
+  --color-persona-red: var(--persona-red);
+  --color-persona-yellow: var(--persona-yellow);
+  --color-persona-green: var(--persona-green);
+  --color-persona-blue: var(--persona-blue);
+  --color-persona-red-ink: var(--persona-red-ink);
+  --color-persona-yellow-ink: var(--persona-yellow-ink);
+  --color-persona-green-ink: var(--persona-green-ink);
+  --color-persona-blue-ink: var(--persona-blue-ink);
+  --color-persona-red-soft: var(--persona-red-soft);
+  --color-persona-yellow-soft: var(--persona-yellow-soft);
+  --color-persona-green-soft: var(--persona-green-soft);
+  --color-persona-blue-soft: var(--persona-blue-soft);
 
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -59,19 +80,87 @@
 }
 
 :root {
-  /* Ham palet — DESIGN.md tablosu */
-  --paper: #f2ede3; /* zemin */
-  --surface: #faf7f0; /* kart yüzeyi */
-  --line: #ddd4c4; /* kenarlık */
-  --line-strong: #c9bea8; /* kritik çerçeve */
-  --ink-soft: #6e675b; /* ikincil metin */
-  --ink: #211e18; /* mürekkep */
-  --brand: #1e3a2f; /* marka yeşili */
-  --brand-hover: #2c5343; /* marka hover */
-  --sage: #c3ccba; /* adaçayı yüzey */
-  --pass: #3e8e5a; /* geçti */
-  --partial: #c08a2e; /* kısmi */
-  --fail: #a83e2c; /* kaldı */
+  /* Ham palet — projedeki dört renk. Beşinci bir hex yazılmaz. */
+  --mist: #eaefef; /* açık zemin ailesi */
+  --steel: #bfc9d1; /* gri-mavi ayraç */
+  --slate: #25343f; /* koyu arduvaz — mürekkep ve marka */
+  --ember: #ff9b51; /* turuncu vurgu */
+
+  /* Roller — hepsi yukarıdaki dörtten color-mix ile türer.
+     Yorumdaki hex, oklab karışımının hesaplanmış sonucudur. */
+  --paper: color-mix(in oklab, var(--mist) 88%, var(--steel)); /* #e5eaeb zemin */
+  --surface: var(--mist); /* #eaefef kart yüzeyi — zeminden bir ton açık */
+  --line: var(--steel); /* #bfc9d1 kenarlık */
+  --line-strong: color-mix(
+    in oklab,
+    var(--steel) 78%,
+    var(--slate)
+  ); /* #9aa6af kritik çerçeve */
+  --ink: var(--slate); /* #25343f gövde — kart üstünde 11.0:1 */
+  --ink-soft: color-mix(
+    in oklab,
+    var(--slate) 72%,
+    var(--steel)
+  ); /* #4c5a65 ikincil metin — 6.1:1 */
+  --brand: var(--slate); /* marka ve yapı */
+  --brand-hover: color-mix(
+    in oklab,
+    var(--slate) 88%,
+    var(--steel)
+  ); /* #35444f marka hover */
+  --tint: color-mix(
+    in oklab,
+    var(--steel) 55%,
+    var(--mist)
+  ); /* #d2dade sakin yüzey — alıntı, bilgi bandı */
+
+  /* Rubrik durumları. Dört renkte üç ayrı hue yok; ayrım dolgu ağırlığıyla
+     yapılır: Geçti tam arduvaz dolgu, Kısmi turuncu dış çizgi + %20 dolgu,
+     Kaldı tam turuncu dolgu. --partial ve --fail bilerek aynı değerdedir,
+     ikisi de --ember'dir; birini ayrı bir renge çekmek kurguyu bozar. */
+  --pass: var(--slate); /* geçti — dolgu üstünde mist metin, 11.0:1 */
+  --partial: var(--ember); /* kısmi — dış çizgi, üstünde arduvaz metin 9.9:1 */
+  --fail: var(--ember); /* kaldı — tam dolgu, üstünde arduvaz metin 6.1:1 */
+
+  /* Persona kişilik renkleri — dört renklik paletin TEK istisnası.
+     illustrations/*.png dosyalarındaki kıyafet renklerinden örneklendi ve o
+     görsellere bağlıdır; palete çekilirse dört persona birbirinden ayırt
+     edilemez hale gelir. Rubrik durumlarıyla karıştırılmaz; yalnızca persona
+     kartlarında ve persona kimliğinde kullanılır. Türev tonlar aşağıda yeni
+     zemine göre yeniden ayarlandı. */
+  --persona-red: #e3372b; /* baskın */
+  --persona-yellow: #fdbb14; /* etkileyici */
+  --persona-green: #38964d; /* uyumlu */
+  --persona-blue: #0d65bb; /* analitik */
+
+  /* Metin varyantı: ham renkler açık zeminde okunmuyor, mürekkebe çekilir.
+     Oranlar kart yüzeyinde en az 4.5:1 verecek şekilde seçildi. */
+  --persona-red-ink: color-mix(
+    in oklab,
+    var(--persona-red) 62%,
+    var(--ink)
+  ); /* 5.7:1 */
+  --persona-yellow-ink: color-mix(
+    in oklab,
+    var(--persona-yellow) 40%,
+    var(--ink)
+  ); /* 4.7:1 — %52 iken 3.7:1 ile kalıyordu */
+  --persona-green-ink: color-mix(
+    in oklab,
+    var(--persona-green) 62%,
+    var(--ink)
+  ); /* 5.2:1 */
+  --persona-blue-ink: color-mix(
+    in oklab,
+    var(--persona-blue) 66%,
+    var(--ink)
+  ); /* 6.6:1 */
+
+  /* İllüstrasyon zemini: kart yüzeyinin renge çalan hâli. */
+  --persona-red-soft: color-mix(in oklab, var(--persona-red) 8%, var(--surface));
+  --persona-yellow-soft: color-mix(in oklab, var(--persona-yellow) 12%, var(--surface));
+  --persona-green-soft: color-mix(in oklab, var(--persona-green) 9%, var(--surface));
+  --persona-blue-soft: color-mix(in oklab, var(--persona-blue) 8%, var(--surface));
 
   /* shadcn rolleri — hepsi ham paletten türer */
   --background: var(--paper);
@@ -88,10 +177,14 @@
   --muted-foreground: var(--ink-soft);
   --accent: color-mix(in oklab, var(--paper) 70%, var(--line));
   --accent-foreground: var(--ink);
-  /* Semantik üçlü sadece rubrikte kullanılır; destructive rolü mürekkebe düşer. */
+  /* Turuncu yalnızca vurgu ve rubrik alarmıdır; destructive rolü mürekkebe
+     düşer, yıkıcı aksiyon rengiyle değil metinle anlatılır. */
   --destructive: var(--ink);
   --border: var(--line);
   --input: var(--line);
+  /* Odak halkası arduvaz. Turuncu halka zemine karşı 1.7:1 kalıyor,
+     WCAG'in metin dışı 3:1 eşiğini geçmiyor; vurgu turuncusu odakta değil
+     aktif sekme çizgisi ve alıntı çubuğunda kullanılır. */
   --ring: var(--brand);
   --radius: 0.5rem;
 
@@ -239,13 +332,19 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23t)' opacity='0.32'/%3E%3C/svg%3E");
   }
 
-  /* Transkript alıntısı: sol 3px yeşil çizgi, adaçayı zemin, mono font. */
+  /* Transkript alıntısı: sol 3px turuncu çizgi, sakin zemin, mono font. */
   .prova-quote {
-    border-left: 3px solid var(--brand);
-    background-color: var(--sage);
+    border-left: 3px solid var(--ember);
+    background-color: var(--tint);
     font-family: var(--font-mono);
     color: var(--ink);
   }
+}
+
+/* Aktif menü öğesi: solda 3px turuncu çizgi. Turuncunun kabuktaki tek
+   sürekli görevi budur; yüzey ve metin arduvaz ailesinde kalır. */
+[data-slot="sidebar-menu-button"][data-active="true"] {
+  box-shadow: inset 3px 0 0 0 var(--ember);
 }
 
 /* Katmansız kural: buton içi ikonlar 20px, satır içi ikonlar 16px.

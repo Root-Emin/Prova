@@ -36,7 +36,7 @@ export function Recertification({
   const newVersion = publishedVersions[scenario]
 
   return (
-    <section className="flex items-start justify-between gap-6 rounded-lg border border-line-strong bg-sage px-4 py-3">
+    <section className="flex items-start justify-between gap-6 rounded-lg border border-line-strong bg-tint px-4 py-3">
       <div>
         <p className="font-heading text-sm font-semibold text-primary">
           {affected.length} sertifika eski rubrik sürümüyle verildi

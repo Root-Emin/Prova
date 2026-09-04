@@ -37,7 +37,7 @@ export function PushToTalk({
       className={cn(
         "flex items-center justify-center gap-3 rounded-lg border px-4 py-3",
         status === "recording"
-          ? "border-primary bg-sage"
+          ? "border-primary bg-tint"
           : "border-border bg-card"
       )}
     >

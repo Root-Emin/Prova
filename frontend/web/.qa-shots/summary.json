@@ -1,0 +1,107 @@
+{
+  "routesTested": [
+    "/",
+    "/personas",
+    "/assignments",
+    "/sessions",
+    "/sessions/o-5512",
+    "/certificates",
+    "/certificates/PRV-2026-0148",
+    "/users",
+    "/devices",
+    "/audit-log",
+    "/llm-routing",
+    "/login",
+    "/register",
+    "/verify",
+    "/privacy"
+  ],
+  "consoleErrors": [],
+  "networkFailures": [],
+  "findings": [
+    {
+      "severity": "Critical",
+      "title": "Dashboard metric cards unreadable on mobile",
+      "route": "/",
+      "detail": "Fixed grid-cols-4 + persistent 220px sidebar at 390px collapses summary cards; text wraps to single characters. Evidence: home_mobile.png"
+    },
+    {
+      "severity": "High",
+      "title": "Admin shell not mobile-adapted (sidebar always open)",
+      "route": "/ (admin layout)",
+      "detail": "Sidebar collapsible=none; main content ~170px on mobile; tables truncated/clipped. Evidence: home_mobile.png, sessions_mobile.png"
+    },
+    {
+      "severity": "High",
+      "title": "Auth CTA bypasses form validation",
+      "route": "/login",
+      "detail": "Primary action is Link to /verify; empty/invalid email can proceed. Evidence: login_desktop.png"
+    },
+    {
+      "severity": "High",
+      "title": "Auth CTA bypasses form validation",
+      "route": "/register",
+      "detail": "Primary action is Link to /verify; empty/invalid fields can proceed. Evidence: register_desktop.png"
+    },
+    {
+      "severity": "Medium",
+      "title": "Email field not marked required",
+      "route": "/login",
+      "detail": "Email input lacks required/aria-required. Evidence: login_desktop.png"
+    },
+    {
+      "severity": "Medium",
+      "title": "Email / name fields not marked required",
+      "route": "/register",
+      "detail": "Name and email inputs lack required. Evidence: register_desktop.png"
+    },
+    {
+      "severity": "Medium",
+      "title": "Admin tables clip on narrow widths",
+      "route": "/sessions",
+      "detail": "Multi-column tables clipped under overflow-x-hidden; no scroll affordance. Evidence: sessions_mobile.png"
+    },
+    {
+      "severity": "Medium",
+      "title": "Primary control may lack visible focus indicator",
+      "route": "/verify",
+      "detail": "Focus probe reported outline 0px on first focusable. Evidence: verify_desktop.png"
+    },
+    {
+      "severity": "Low",
+      "title": "Dev tooling badge overlays content",
+      "route": "multiple",
+      "detail": "Circular N badge overlaps UI in screenshots (dev-only). Evidence: home_mobile.png, login_desktop.png"
+    },
+    {
+      "severity": "Pass",
+      "title": "Dialog opens from CTA",
+      "route": "/users",
+      "detail": "Invite modal opens with fields and actions. Evidence: users_dialog.png"
+    },
+    {
+      "severity": "Pass",
+      "title": "Role gate shown as designed",
+      "route": "/llm-routing",
+      "detail": "org-admin correctly blocked from platform-only page. Evidence: llm-routing_desktop.png"
+    },
+    {
+      "severity": "Pass",
+      "title": "Root layout lang=tr + Turkish copy",
+      "route": "/",
+      "detail": "html lang=tr; Turkish UI labels present. Evidence: home_desktop.png"
+    },
+    {
+      "severity": "Pass",
+      "title": "No console or network failures",
+      "route": "all tested",
+      "detail": "Zero console errors and zero failed same-origin network requests during crawl"
+    },
+    {
+      "severity": "Pass",
+      "title": "Dynamic detail routes resolve",
+      "route": "/sessions/o-5512",
+      "detail": "Session and certificate detail pages render without HTTP errors"
+    }
+  ]
+}

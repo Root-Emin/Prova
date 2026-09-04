@@ -36,7 +36,7 @@ export function AppSidebar() {
   const { role, setRole } = useRole()
 
   return (
-    <Sidebar collapsible="none" className="h-svh border-r border-sidebar-border">
+    <Sidebar collapsible="offcanvas" className="border-r border-sidebar-border">
       <SidebarHeader className="gap-0 px-3 pt-4 pb-3">
         <span className="font-heading text-xl tracking-tight text-primary">
           Prova

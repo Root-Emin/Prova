@@ -1,3 +1,5 @@
+import type { PersonaColor } from "./persona-colors"
+
 export type Criterion = {
   id: string
   code: string
@@ -17,6 +19,8 @@ export type Version = {
 
 export type Scenario = {
   id: string
+  /** Personanın kişilik rengi; personalar sekmesi bu alana göre gruplanır. */
+  color: PersonaColor
   name: string
   summary: string
   sector: string
@@ -48,6 +52,7 @@ export const models: Record<string, string> = {
 export const scenarios: Scenario[] = [
   {
     id: "s-201",
+    color: "green",
     status: "published",
     lastEditedBy: "Burak Yıldırım",
     lastEditedAt: "28.08.2026",
@@ -101,6 +106,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "s-202",
+    color: "red",
     status: "published",
     lastEditedBy: "Elif Şahin",
     lastEditedAt: "19.08.2026",
@@ -146,6 +152,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "s-203",
+    color: "blue",
     status: "published",
     lastEditedBy: "Burak Yıldırım",
     lastEditedAt: "21.08.2026",
@@ -190,6 +197,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "s-204",
+    color: "red",
     status: "published",
     lastEditedBy: "Elif Şahin",
     lastEditedAt: "01.09.2026",
@@ -219,6 +227,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "s-205",
+    color: "blue",
     status: "draft",
     lastEditedBy: "Burak Yıldırım",
     lastEditedAt: "02.09.2026",
@@ -242,6 +251,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "s-206",
+    color: "green",
     status: "published",
     lastEditedBy: "Elif Şahin",
     lastEditedAt: "26.08.2026",
@@ -274,6 +284,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "s-207",
+    color: "yellow",
     status: "draft",
     lastEditedBy: "Burak Yıldırım",
     lastEditedAt: "03.09.2026",

@@ -53,7 +53,7 @@ export default function AssignmentsPage() {
         action={<AssignmentDialog onAssign={assign} />}
       />
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="min-w-0 rounded-lg border border-border bg-card">
         <Table>
           <TableHeader>
             <TableRow>

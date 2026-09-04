@@ -50,5 +50,6 @@ type Resolver struct {
 	RubricRepo     provaRepo.RubricRepository
 	LLMProfileRepo provaRepo.LLMProfileRepository
 	RoutingRepo    provaRepo.RoutingRepository
+	RoutingStatsUC *provaUC.RoutingStatsUseCase
 	Broker         *realtime.SessionBroker
 }

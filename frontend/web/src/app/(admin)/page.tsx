@@ -25,7 +25,7 @@ export default function DashboardPage() {
         description="Kurumun sertifikasyon durumu. Son güncelleme 03.09.2026 09:44."
       />
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Bu hafta oturum"
           value={String(dashboardSummary.sessionsThisWeek)}
@@ -53,7 +53,7 @@ export default function DashboardPage() {
       </div>
 
       {toRenew.length > 0 && (
-        <section className="flex items-center justify-between gap-6 rounded-lg border border-line-strong bg-sage px-4 py-3">
+        <section className="flex flex-col items-stretch justify-between gap-4 rounded-lg border border-line-strong bg-tint px-4 py-3 sm:flex-row sm:items-center sm:gap-6">
           <div>
             <p className="font-heading text-sm font-semibold text-primary">
               Mevzuat değişti, {toRenew.length} sertifika eski rubrikle
