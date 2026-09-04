@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "../../../shared/styles/tokens.css";
+
+@layer base {
+  /* Sabit pencere: sayfa seviyesinde kaydırma yok. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* Çerçevesiz pencere: üstteki ince bar sürükleme alanıdır. */
+  .prova-drag {
+    -webkit-app-region: drag;
+  }
+
+  .prova-no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Sınav bütünlüğü: canlı oturumda seçim ve kopyalama kapalı. */
+  .prova-sinav {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

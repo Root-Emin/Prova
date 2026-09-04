@@ -1,0 +1,329 @@
+/* Prova tasarım token'ları — .notes/DESIGN.md'nin tek kod karşılığı.
+   Renk hex'leri SADECE bu dosyada bulunur. Başka hiçbir dosyada hex yazılmaz. */
+
+/* Dark mode YOK. Tailwind'in varsayılan dark: davranışı işletim sistemi
+   tercihine bakar; buradaki tanım onu asla eşleşmeyen bir sınıfa bağlar. */
+/* Paylaşılan bileşenler uygulama dizinlerinin dışında; Tailwind'in sınıf
+   taraması bu dizinleri açıkça görmeli. */
+@source "../components";
+@source "../lib";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Prova'ya özel roller */
+  --color-line-strong: var(--line-strong);
+  --color-sage: var(--sage);
+  --color-brand-hover: var(--brand-hover);
+  --color-pass: var(--pass);
+  --color-partial: var(--partial);
+  --color-fail: var(--fail);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-serif), ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+:root {
+  /* Ham palet — DESIGN.md tablosu */
+  --paper: #f2ede3; /* zemin */
+  --surface: #faf7f0; /* kart yüzeyi */
+  --line: #ddd4c4; /* kenarlık */
+  --line-strong: #c9bea8; /* kritik çerçeve */
+  --ink-soft: #6e675b; /* ikincil metin */
+  --ink: #211e18; /* mürekkep */
+  --brand: #1e3a2f; /* marka yeşili */
+  --brand-hover: #2c5343; /* marka hover */
+  --sage: #c3ccba; /* adaçayı yüzey */
+  --pass: #3e8e5a; /* geçti */
+  --partial: #c08a2e; /* kısmi */
+  --fail: #a83e2c; /* kaldı */
+
+  /* shadcn rolleri — hepsi ham paletten türer */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand);
+  --primary-foreground: var(--surface);
+  --secondary: var(--surface);
+  --secondary-foreground: var(--ink);
+  --muted: color-mix(in oklab, var(--paper) 82%, var(--line));
+  --muted-foreground: var(--ink-soft);
+  --accent: color-mix(in oklab, var(--paper) 70%, var(--line));
+  --accent-foreground: var(--ink);
+  /* Semantik üçlü sadece rubrikte kullanılır; destructive rolü mürekkebe düşer. */
+  --destructive: var(--ink);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--brand);
+  --radius: 0.5rem;
+
+  /* Ölçek. Boşluk skalası yalnızca 4/8/12/16/20/24 kullanır. */
+  --metin-govde: 14px;
+  --metin-ikincil: 12px;
+  --metin-baslik: 24px;
+  --kontrol-yuksekligi: 36px;
+  --buton-yuksekligi: 34px;
+  --kolon-genisligi: 960px;
+  --sidebar-genisligi: 220px;
+
+  --sidebar: color-mix(in oklab, var(--paper) 78%, var(--line));
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--surface);
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--brand);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--brand);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-size: var(--metin-govde);
+    line-height: 1.5;
+  }
+
+  /* Kontrol yükseklikleri --kontrol-yuksekligi / --buton-yuksekligi
+     değişkenlerinden gelir; primitifler bu değişkenleri okur. */
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"] {
+    font-size: var(--metin-govde);
+  }
+
+  /* Başlıklar serif ve marka yeşili. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    color: var(--brand);
+  }
+
+  /* Akordiyon başlığı semantik olarak h3'tür ama başlık değil, satırdır. */
+  [data-slot="accordion-trigger"] {
+    font-family: var(--font-sans);
+    color: var(--foreground);
+  }
+
+  /* Kart gölgesi yok; ayrım ince çizgi ve yüzey farkıyla yapılır. */
+  [data-slot="card"],
+  [data-slot="dialog-popup"],
+  [data-slot="alert-dialog-popup"],
+  [data-slot="popover-popup"],
+  [data-slot="select-popup"],
+  [data-slot="dropdown-menu-popup"] {
+    box-shadow: none;
+  }
+}
+
+@layer components {
+  /* İçerik kolonu: en fazla 960px, ortalanmış. */
+  .prova-kolon {
+    width: 100%;
+    max-width: var(--kolon-genisligi);
+    margin-inline: auto;
+  }
+
+  /* Editör kabuğu: her şey tek kart içinde, bölümler ince ayraçla ayrılır. */
+  .prova-kart {
+    border: 1px solid var(--line-strong);
+    background-color: var(--surface);
+    border-radius: var(--radius);
+  }
+
+  .prova-bolum {
+    padding: 16px;
+  }
+
+  .prova-bolum + .prova-bolum {
+    border-top: 1px solid var(--line);
+  }
+
+  /* Kısa alanlar iki sütuna girer; satırın tamamını yalnızca textarea kaplar. */
+  .prova-alan-izgara {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* Alanlar arası 12, alan grupları arası 20, bölüm arası 24. */
+  .prova-alan + .prova-alan {
+    margin-top: 12px;
+  }
+
+  .prova-grup + .prova-grup {
+    margin-top: 20px;
+  }
+
+  /* Kaydetme çubuğu kartın altında sabit durur. */
+  .prova-kaydet-cubugu {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background-color: var(--surface);
+    padding: 8px 16px;
+  }
+
+  /* Metadata: tarih, oturum no, kriter kodu */
+  .prova-meta {
+    font-size: 12px;
+    line-height: 1.25rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+  }
+
+  /* Doku: CSS içinde feTurbulence, PNG asset yok.
+     Sadece giriş, kayıt, doğrulama, cihaz kaydı, oturum başlangıcı ve
+     sonuç/sertifika çıktısında kullanılır. */
+  .prova-texture {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .prova-texture::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23t)' opacity='0.32'/%3E%3C/svg%3E");
+  }
+
+  /* Transkript alıntısı: sol 3px yeşil çizgi, adaçayı zemin, mono font. */
+  .prova-quote {
+    border-left: 3px solid var(--brand);
+    background-color: var(--sage);
+    font-family: var(--font-mono);
+    color: var(--ink);
+  }
+}
+
+/* Katmansız kural: buton içi ikonlar 20px, satır içi ikonlar 16px.
+   DESIGN.md'de başka ikon boyutu yok. */
+[data-slot="button"] svg:not([class*="size-"]),
+[data-slot="sidebar-menu-button"] svg:not([class*="size-"]) {
+  width: 20px;
+  height: 20px;
+}
+
+/* Yazdırma görünümü. Ayrı sertifika tasarımı yok; sonuç ekranının kendisi
+   yazdırılır. Kabuk gizlenir, akordiyonlar açılır, renkler korunur. */
+@layer base {
+  @media print {
+    @page {
+      margin: 16mm;
+    }
+
+    html,
+    body {
+      height: auto;
+      overflow: visible;
+      background: var(--surface);
+    }
+
+    * {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .prova-yazdirma-disi,
+    header[data-slot="ust-bar"],
+    [data-slot="sidebar"],
+    [data-slot="accordion-trigger-icon"] {
+      display: none !important;
+    }
+
+    .prova-yazdirilabilir,
+    .prova-yazdirilabilir * {
+      overflow: visible !important;
+      height: auto !important;
+      max-height: none !important;
+    }
+
+    /* Kapalı akordiyon satırları da gerekçe ve kanıtla birlikte basılır.
+       Paneller keepMounted ile DOM'da kalır, yazdırmada hidden geçersiz kılınır. */
+    [data-slot="accordion-content"],
+    [data-slot="accordion-content"][hidden] {
+      display: block !important;
+      height: auto !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+
+    /* Sabit genişlikli panel yerleşimi kâğıda sığmaz. */
+    .prova-icerik {
+      width: auto !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    [data-slot="sidebar-wrapper"] {
+      display: block !important;
+    }
+
+    [data-slot="accordion-item"],
+    figure {
+      break-inside: avoid;
+    }
+
+    .prova-yazdirma-basligi {
+      display: block !important;
+    }
+  }
+}
+
+/* Yalnızca yazdırmada görünen künye. */
+.prova-yazdirma-basligi {
+  display: none;
+}
