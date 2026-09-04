@@ -11,6 +11,11 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
+	// Environment, dağıtımın hangi ortamda çalıştığını söyler. Fail-fast
+	// doğrulaması yalnızca production'da katıdır; geliştirme ortamında aynı
+	// eksikler uyarı olarak geçilir.
+	Environment string
+
 	Server    ServerConfig
 	Database  DatabaseConfig
 	Mongo     MongoConfig
@@ -21,6 +26,12 @@ type Config struct {
 	Kafka     KafkaConfig
 	WebSocket WebSocketConfig
 	Log       LogConfig
+
+	// Prova'ya özgü bölümler.
+	GraphQL   GraphQLConfig
+	LLM       LLMConfig
+	Lifecycle LifecycleConfig
+	Token     TokenConfig
 }
 
 // WebSocketConfig holds real-time WebSocket settings.
@@ -34,13 +45,13 @@ type WebSocketConfig struct {
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
-	Host              string
-	Port              int
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
+	Host               string
+	Port               int
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	IdleTimeout        time.Duration
 	CORSAllowedOrigins []string
-	MaxBodyBytes      int64
+	MaxBodyBytes       int64
 }
 
 // DatabaseConfig holds PostgreSQL connection settings.
@@ -79,6 +90,16 @@ type RedisConfig struct {
 func (r RedisConfig) Addr() string {
 	return fmt.Sprintf("%s:%d", r.Host, r.Port)
 }
+
+// DefaultJWTSecret is the placeholder shipped for local development. It is a
+// known value, so production must never boot with it; Validate refuses to.
+const DefaultJWTSecret = "change-me-in-production"
+
+// DefaultMongoURI is the loopback URI used for local development.
+const DefaultMongoURI = "mongodb://localhost:27017"
+
+// EnvProduction is the value of APP_ENV that turns on strict validation.
+const EnvProduction = "production"
 
 // JWTConfig holds JWT signing settings.
 type JWTConfig struct {
@@ -134,18 +155,28 @@ type AuthConfig struct {
 	SelfSignup bool
 }
 
+// E-posta sağlayıcı adları. Adlar burada durur çünkü hem fabrika hem de
+// doğrulama bunlara bakar; fabrika paketine bakmak config'i infrastructure'a
+// bağımlı kılardı.
+const (
+	ProviderResend = "resend"
+	ProviderSMTP   = "smtp"
+	ProviderNone   = "none"
+)
+
 // EmailConfig holds transactional e-mail settings.
 //
 // Provider selects the delivery adapter. The application never imports a
 // provider package directly; it depends on the notification.Sender port only,
 // so switching away from Resend is a configuration change plus one new adapter.
 type EmailConfig struct {
-	Provider    string // resend | none
+	Provider    string // resend | smtp | none
 	FromAddress string
 	FromName    string
 	ReplyTo     string
 	Timeout     time.Duration
 	Resend      ResendConfig
+	SMTP        SMTPConfig
 }
 
 // ResendConfig holds the Resend-specific credentials.
@@ -176,6 +207,7 @@ type LogConfig struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	return &Config{
+		Environment: strings.ToLower(envOrDefault("APP_ENV", "development")),
 		Server: ServerConfig{
 			Host:               envOrDefault("SERVER_HOST", "0.0.0.0"),
 			Port:               envOrDefaultInt("SERVER_PORT", 8080),
@@ -196,7 +228,7 @@ func Load() *Config {
 			MinConns: envOrDefaultInt32("DB_MIN_CONNS", 5),
 		},
 		Mongo: MongoConfig{
-			URI:            envOrDefault("MONGO_URI", "mongodb://localhost:27017"),
+			URI:            envOrDefault("MONGO_URI", DefaultMongoURI),
 			Database:       envOrDefault("MONGO_DATABASE", "prova"),
 			ConnectTimeout: time.Duration(envOrDefaultInt("MONGO_CONNECT_TIMEOUT_SECONDS", 10)) * time.Second,
 			MaxPoolSize:    uint64(envOrDefaultInt("MONGO_MAX_POOL_SIZE", 50)),
@@ -209,7 +241,7 @@ func Load() *Config {
 			DB:       envOrDefaultInt("REDIS_DB", 0),
 		},
 		JWT: JWTConfig{
-			Secret:          envOrDefault("JWT_SECRET", "change-me-in-production"),
+			Secret:          envOrDefault("JWT_SECRET", DefaultJWTSecret),
 			ExpirationHours: envOrDefaultInt("JWT_EXPIRATION_HOURS", 24),
 			Issuer:          envOrDefault("JWT_ISSUER", "masterfabric"),
 		},
@@ -236,6 +268,13 @@ func Load() *Config {
 				BaseURL: envOrDefault("RESEND_BASE_URL", "https://api.resend.com"),
 				Region:  envOrDefault("RESEND_REGION", "eu-west-1"),
 			},
+			SMTP: SMTPConfig{
+				Host:     envOrDefault("SMTP_HOST", "localhost"),
+				Port:     envOrDefaultInt("SMTP_PORT", 1025),
+				Username: envOrDefault("SMTP_USERNAME", ""),
+				Password: envOrDefault("SMTP_PASSWORD", ""),
+				UseTLS:   envOrDefault("SMTP_USE_TLS", "false") == "true",
+			},
 		},
 		Kafka: KafkaConfig{
 			Brokers:           envOrDefaultSlice("KAFKA_BROKERS", []string{"localhost:9092"}),
@@ -254,6 +293,36 @@ func Load() *Config {
 		Log: LogConfig{
 			Level:  envOrDefault("LOG_LEVEL", "info"),
 			Format: envOrDefault("LOG_FORMAT", "json"),
+		},
+		GraphQL: GraphQLConfig{
+			// Varsayılanlar geliştirme içindir. Validate(), production'da
+			// playground ve introspection'ı zorla kapatır.
+			PlaygroundEnabled:    envOrDefault("GRAPHQL_PLAYGROUND", "true") == "true",
+			IntrospectionEnabled: envOrDefault("GRAPHQL_INTROSPECTION", "true") == "true",
+			MaxDepth:             envOrDefaultInt("GRAPHQL_MAX_DEPTH", 12),
+			MaxComplexity:        envOrDefaultInt("GRAPHQL_MAX_COMPLEXITY", 500),
+			MaxBatch:             envOrDefaultInt("GRAPHQL_MAX_BATCH", 5),
+		},
+		LLM: LLMConfig{
+			RequestTimeout:     time.Duration(envOrDefaultInt("LLM_REQUEST_TIMEOUT_SECONDS", 60)) * time.Second,
+			CircuitThreshold:   envOrDefaultInt("LLM_CIRCUIT_THRESHOLD", 3),
+			CircuitCooldown:    time.Duration(envOrDefaultInt("LLM_CIRCUIT_COOLDOWN_SECONDS", 30)) * time.Second,
+			LongInputThreshold: envOrDefaultInt("LLM_LONG_INPUT_THRESHOLD", 4000),
+			StoreRawAudio:      envOrDefault("LLM_STORE_RAW_AUDIO", "false") == "true",
+		},
+		Lifecycle: LifecycleConfig{
+			DeletionGracePeriod: time.Duration(envOrDefaultInt("LIFECYCLE_DELETION_GRACE_SECONDS", 30*24*3600)) * time.Second,
+			PurgeInterval:       time.Duration(envOrDefaultInt("LIFECYCLE_PURGE_INTERVAL_SECONDS", 3600)) * time.Second,
+			PurgeEnabled:        envOrDefault("LIFECYCLE_PURGE_ENABLED", "true") == "true",
+		},
+		Token: TokenConfig{
+			AccessTTL:          time.Duration(envOrDefaultInt("TOKEN_ACCESS_TTL_SECONDS", 900)) * time.Second,
+			RefreshTTL:         time.Duration(envOrDefaultInt("TOKEN_REFRESH_TTL_SECONDS", 30*24*3600)) * time.Second,
+			MagicLinkTTL:       time.Duration(envOrDefaultInt("TOKEN_MAGIC_LINK_TTL_SECONDS", 900)) * time.Second,
+			DeviceChallengeTTL: time.Duration(envOrDefaultInt("TOKEN_DEVICE_CHALLENGE_TTL_SECONDS", 120)) * time.Second,
+			MaxFailedAttempts:  envOrDefaultInt("TOKEN_MAX_FAILED_ATTEMPTS", 10),
+			LockDuration:       time.Duration(envOrDefaultInt("TOKEN_LOCK_DURATION_SECONDS", 900)) * time.Second,
+			WebBaseURL:         envOrDefault("WEB_BASE_URL", "http://localhost:3000"),
 		},
 	}
 }
@@ -307,4 +376,87 @@ func envOrDefaultSlice(key string, defaultVal []string) []string {
 		}
 	}
 	return defaultVal
+}
+
+// GraphQLConfig, tek istemci API yüzeyi olan GraphQL sunucusunun sertleştirme
+// ayarlarını taşır.
+//
+// Derinlik ve karmaşıklık limitleri isteğe bağlı süs değildir: iç içe geçmiş
+// bir sorgu tek istekle veritabanını kilitleyebilir, ve introspection açık
+// bırakılan bir production şeması saldırgana tüm saldırı yüzeyinin haritasını
+// verir.
+type GraphQLConfig struct {
+	// PlaygroundEnabled, tarayıcıdan denenebilen GraphiQL arayüzünü açar.
+	PlaygroundEnabled bool
+	// IntrospectionEnabled, __schema sorgularına izin verir.
+	IntrospectionEnabled bool
+	// MaxDepth, bir sorgunun izin verilen en fazla iç içe geçme derinliği.
+	MaxDepth int
+	// MaxComplexity, alan sayısı ağırlıklı toplam karmaşıklık tavanı.
+	MaxComplexity int
+	// MaxBatch, tek HTTP isteğinde gönderilebilecek en fazla operasyon sayısı.
+	MaxBatch int
+}
+
+// LLMConfig, iki kademeli model hattının çalışma zamanı ayarları.
+//
+// Model adı ve sağlayıcı burada yoktur; onlar LLM profilleri koleksiyonundan
+// okunur. Buradaki değerler yalnızca taşıma katmanının davranışını belirler.
+type LLMConfig struct {
+	// RequestTimeout, tek bir sağlayıcı çağrısının üst sınırı.
+	RequestTimeout time.Duration
+	// CircuitThreshold, devre kesicinin açılması için gereken ardışık hata sayısı.
+	CircuitThreshold int
+	// CircuitCooldown, devre açıldıktan sonra tek deneme yapılana kadar geçen süre.
+	CircuitCooldown time.Duration
+	// LongInputThreshold, bu karakter sayısını aşan girdiyi güçlü kademeye
+	// yönlendirir; hızlı model uzun bağlamda gözle görülür şekilde bozulur.
+	LongInputThreshold int
+	// StoreRawAudio, ham ses kaydının saklanıp saklanmayacağı. Varsayılan
+	// kapalıdır ve öyle kalmalıdır: istemci backend'e yalnızca metin gönderir.
+	StoreRawAudio bool
+}
+
+// LifecycleConfig, hesap yaşam döngüsünün zaman ayarları.
+type LifecycleConfig struct {
+	// DeletionGracePeriod, silme talebi ile kalıcı silme arasındaki geri alma
+	// penceresi. Test edilebilmesi için env'den ayarlanır.
+	DeletionGracePeriod time.Duration
+	// PurgeInterval, kalıcı silme işinin çalışma sıklığı.
+	PurgeInterval time.Duration
+	// PurgeEnabled, zamanlanmış silme işini açar.
+	PurgeEnabled bool
+}
+
+// TokenConfig, kısa ömürlü access + rotasyonlu refresh token ayarları.
+type TokenConfig struct {
+	// AccessTTL, access token'ın ömrü. Kısa tutulur çünkü iptal, denylist
+	// dışında yalnızca sona ermeyle gerçekleşir.
+	AccessTTL time.Duration
+	// RefreshTTL, refresh token ailesinin toplam ömrü.
+	RefreshTTL time.Duration
+	// MagicLinkTTL, e-postadaki tek kullanımlık bağlantının ömrü.
+	MagicLinkTTL time.Duration
+	// DeviceChallengeTTL, cihaz imza challenge'ının ömrü. Kısadır: challenge
+	// yeniden oynatılabilir bir kimlik bilgisine dönüşmemeli.
+	DeviceChallengeTTL time.Duration
+	// MaxFailedAttempts, hesabın geçici kilitlenmesi için gereken ardışık
+	// başarısız giriş sayısı.
+	MaxFailedAttempts int
+	// LockDuration, kilidin süresi.
+	LockDuration time.Duration
+	// WebBaseURL, magic link'in işaret ettiği web arayüzünün kökü. Electron
+	// deep-link'i bilerek kullanılmaz; bağlantı tarayıcıda açılır.
+	WebBaseURL string
+}
+
+// SMTPConfig, geliştirmede Mailpit'e, gerekirse üretimde bir SMTP röle
+// sunucusuna teslim için kullanılan ayarlar.
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	// UseTLS, STARTTLS ile şifreli teslimi zorlar. Mailpit'te kapalıdır.
+	UseTLS bool
 }

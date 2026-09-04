@@ -12,7 +12,7 @@ import (
 )
 
 func TestLoginCode_CarriesCodeInBothBodies(t *testing.T) {
-	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute)
+	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute, "")
 
 	require.NoError(t, msg.Validate())
 	assert.Equal(t, "user@corp.com", msg.To.Email)
@@ -25,7 +25,7 @@ func TestLoginCode_CarriesCodeInBothBodies(t *testing.T) {
 // Putting the code in the subject is scored badly by filters and leaks it onto
 // lock screens.
 func TestLoginCode_SubjectOmitsTheCode(t *testing.T) {
-	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute)
+	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute, "")
 
 	assert.NotContains(t, msg.Subject, "482913")
 	assert.Equal(t, subjectLoginCode, msg.Subject, "the subject must be a constant, for sender reputation")
@@ -33,8 +33,10 @@ func TestLoginCode_SubjectOmitsTheCode(t *testing.T) {
 
 // Links and images are the two elements that most reliably push a transactional
 // message into spam — and a code in spam breaks the only door into the product.
-func TestLoginCode_CarriesNoLinksOrImages(t *testing.T) {
-	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute)
+// Magic link istendiğinde tek bir bağlantı bilerek eklenir; bağlantısız
+// çağrıda ileti eskisi gibi tamamen bağlantısız kalmalıdır.
+func TestLoginCode_CarriesNoLinksOrImagesWithoutMagicLink(t *testing.T) {
+	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute, "")
 
 	for _, body := range []string{msg.HTMLBody, msg.TextBody} {
 		assert.NotContains(t, body, "<a ")
@@ -45,7 +47,7 @@ func TestLoginCode_CarriesNoLinksOrImages(t *testing.T) {
 }
 
 func TestLoginCode_ShortTTLStillReadsAsAtLeastOneMinute(t *testing.T) {
-	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 20*time.Second)
+	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 20*time.Second, "")
 
 	assert.Contains(t, msg.TextBody, "1 dakika")
 	assert.NotContains(t, msg.TextBody, "0 dakika")
@@ -78,7 +80,7 @@ func TestNewDevice_EscapesTheDeviceName(t *testing.T) {
 }
 
 func TestMessage_ValidateRejectsIncompleteMessages(t *testing.T) {
-	full := LoginCode(model.Address{Email: "user@corp.com"}, "482913", time.Minute)
+	full := LoginCode(model.Address{Email: "user@corp.com"}, "482913", time.Minute, "")
 
 	noRecipient := full
 	noRecipient.To = model.Address{}
@@ -91,4 +93,32 @@ func TestMessage_ValidateRejectsIncompleteMessages(t *testing.T) {
 	noBody := full
 	noBody.TextBody, noBody.HTMLBody = "", ""
 	assert.ErrorIs(t, noBody.Validate(), model.ErrNoBody)
+}
+
+// Aynı ileti hem kodu hem bağlantıyı taşımak zorunda: kullanıcı hangisini
+// isterse onu kullanır, ve iki ayrı ileti hangisinin hangi girişe ait olduğunu
+// çözme yükünü kullanıcıya bindirirdi.
+func TestLoginCode_CarriesBothCodeAndMagicLink(t *testing.T) {
+	link := "https://app.example.com/auth/magic?token=abc123"
+	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute, link)
+
+	if !strings.Contains(msg.TextBody, "482913") || !strings.Contains(msg.TextBody, link) {
+		t.Fatalf("düz metin gövdesi hem kodu hem bağlantıyı içermeli:\n%s", msg.TextBody)
+	}
+	if !strings.Contains(msg.HTMLBody, "482913") || !strings.Contains(msg.HTMLBody, link) {
+		t.Fatalf("HTML gövdesi hem kodu hem bağlantıyı içermeli")
+	}
+}
+
+// Bağlantı üretilemediğinde ileti yine gitmeli; bağlantı bir kolaylıktır,
+// girişin tek yolu değil.
+func TestLoginCode_OmitsLinkSectionWhenLinkIsEmpty(t *testing.T) {
+	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute, "")
+
+	if strings.Contains(msg.TextBody, "bağlantıyla giriş") {
+		t.Fatalf("bağlantı yokken bağlantı metni yazılmamalı:\n%s", msg.TextBody)
+	}
+	if !strings.Contains(msg.TextBody, "482913") {
+		t.Fatalf("kod her zaman yer almalı")
+	}
 }

@@ -29,7 +29,9 @@ var loginCodeHTML = template.Must(template.New("login_code").Parse(`<!doctype ht
 <body style="margin:0;padding:24px;background:#ffffff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111111;">
 <p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Prova'ya giriş yapmak için doğrulama kodunuz:</p>
 <p style="font-size:34px;font-weight:700;letter-spacing:6px;margin:0 0 20px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{{.Code}}</p>
-<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Kod {{.Minutes}} dakika geçerlidir ve yalnızca bir kez kullanılabilir.</p>
+{{if .MagicLink}}<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Kodu yazmak istemiyorsanız doğrudan bu bağlantıyla giriş yapabilirsiniz:</p>
+<p style="font-size:15px;line-height:1.6;margin:0 0 20px;word-break:break-all;"><a href="{{.MagicLink}}" style="color:#1a4fd6;">{{.MagicLink}}</a></p>{{end}}
+<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Kod {{if .MagicLink}}ve bağlantı {{end}}{{.Minutes}} dakika geçerlidir ve yalnızca bir kez kullanılabilir.</p>
 <p style="font-size:15px;line-height:1.6;margin:0;color:#555555;">Bu girişi siz talep etmediyseniz bu iletiyi yok sayabilirsiniz. Kodu hiç kimseyle paylaşmayın; Prova ekibi sizden bu kodu asla istemez.</p>
 </body>
 </html>`))
@@ -45,32 +47,51 @@ var newDeviceHTML = template.Must(template.New("new_device").Parse(`<!doctype ht
 </html>`))
 
 // LoginCode builds the one-time code message.
-func LoginCode(to model.Address, code string, ttl time.Duration) model.Message {
+//
+// magicLink boş bırakılabilir. Doluysa aynı iletide hem altı haneli kod hem de
+// tek kullanımlık bağlantı yer alır: masaüstünde kodu yazmak, tarayıcıda
+// bağlantıya tıklamak kolaydır, ve iki ayrı ileti göndermek kullanıcıya hangi
+// iletinin hangi girişe ait olduğunu çözme yükü bindirirdi.
+func LoginCode(to model.Address, code string, ttl time.Duration, magicLink string) model.Message {
 	minutes := int(ttl.Round(time.Minute).Minutes())
 	if minutes < 1 {
 		minutes = 1
 	}
 
 	data := struct {
-		Code    string
-		Minutes int
-	}{Code: code, Minutes: minutes}
+		Code      string
+		Minutes   int
+		MagicLink string
+	}{Code: code, Minutes: minutes, MagicLink: magicLink}
 
-	text := strings.Join([]string{
+	lines := []string{
 		"Prova'ya giriş yapmak için doğrulama kodunuz:",
 		"",
 		code,
 		"",
-		fmt.Sprintf("Kod %d dakika geçerlidir ve yalnızca bir kez kullanılabilir.", minutes),
+	}
+	if magicLink != "" {
+		lines = append(lines,
+			"Kodu yazmak istemiyorsanız doğrudan bu bağlantıyla giriş yapabilirsiniz:",
+			magicLink,
+			"",
+			fmt.Sprintf("Kod ve bağlantı %d dakika geçerlidir ve yalnızca bir kez kullanılabilir.", minutes),
+		)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("Kod %d dakika geçerlidir ve yalnızca bir kez kullanılabilir.", minutes),
+		)
+	}
+	lines = append(lines,
 		"",
 		"Bu girişi siz talep etmediyseniz bu iletiyi yok sayabilirsiniz.",
 		"Kodu hiç kimseyle paylaşmayın; Prova ekibi sizden bu kodu asla istemez.",
-	}, "\n")
+	)
 
 	return model.Message{
 		To:       to,
 		Subject:  subjectLoginCode,
-		TextBody: text,
+		TextBody: strings.Join(lines, "\n"),
 		HTMLBody: render(loginCodeHTML, data),
 		Tags:     map[string]string{"category": "login_code"},
 	}

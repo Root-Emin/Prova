@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
+	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/service"
@@ -26,37 +29,47 @@ import (
 // identical response value, a response-time floor, and a rate limit keyed on
 // values the caller already knows.
 type RequestLoginCodeUseCase struct {
-	users   repository.UserRepository
-	codes   repository.LoginCodeRepository
-	codeSvc service.LoginCodeService
-	sender  notify.Sender
-	limiter ratelimit.Limiter
-	cfg     config.AuthConfig
-	log     *slog.Logger
-	sleep   func(time.Duration)
-	now     func() time.Time
+	RequestDeps
+
+	sleep func(time.Duration)
+	now   func() time.Time
+}
+
+// RequestDeps, kod isteme akışının bağımlılıkları.
+type RequestDeps struct {
+	Users   repository.UserRepository
+	Codes   repository.LoginCodeRepository
+	CodeSvc service.LoginCodeService
+	Sender  notify.Sender
+	Limiter ratelimit.Limiter
+	Audit   auditService.Recorder
+	Cfg     config.AuthConfig
+	Log     *slog.Logger
+
+	// MagicLinks, aynı e-postaya konacak tek kullanımlık bağlantıyı üretir.
+	// Bağlı değilse ileti yalnızca kodu taşır; giriş yine çalışır.
+	MagicLinks MagicLinkIssuer
+	// WebBaseURL, bağlantının işaret ettiği web arayüzünün kökü.
+	WebBaseURL string
+}
+
+// MagicLinkIssuer, e-postaya konacak tek kullanımlık bağlantı token'ını üretir.
+//
+// Arayüz burada, uygulaması Faz 6'da. Kod ve bağlantı aynı iletide gider, bu
+// yüzden üretimi bu akışın içinde olmak zorunda.
+type MagicLinkIssuer interface {
+	Issue(ctx context.Context, email string, now time.Time) (token string, err error)
 }
 
 // NewRequestLoginCodeUseCase wires the use case.
-func NewRequestLoginCodeUseCase(
-	users repository.UserRepository,
-	codes repository.LoginCodeRepository,
-	codeSvc service.LoginCodeService,
-	sender notify.Sender,
-	limiter ratelimit.Limiter,
-	cfg config.AuthConfig,
-	log *slog.Logger,
-) *RequestLoginCodeUseCase {
+func NewRequestLoginCodeUseCase(deps RequestDeps) *RequestLoginCodeUseCase {
+	if deps.Audit == nil {
+		deps.Audit = auditService.NoopRecorder{}
+	}
 	return &RequestLoginCodeUseCase{
-		users:   users,
-		codes:   codes,
-		codeSvc: codeSvc,
-		sender:  sender,
-		limiter: limiter,
-		cfg:     cfg,
-		log:     log,
-		sleep:   time.Sleep,
-		now:     time.Now,
+		RequestDeps: deps,
+		sleep:       time.Sleep,
+		now:         time.Now,
 	}
 }
 
@@ -73,10 +86,10 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 
 	// IP first: it is the only limit that constrains an attacker sweeping many
 	// addresses, and it must apply before any work that touches the database.
-	if err := uc.checkLimit(ctx, "ip:"+requestIP, uc.cfg.MaxRequestsPerIP, requestIP != ""); err != nil {
+	if err := uc.checkLimit(ctx, "ip:"+requestIP, uc.Cfg.MaxRequestsPerIP, requestIP != ""); err != nil {
 		return nil, err
 	}
-	if err := uc.checkLimit(ctx, "email:"+email, uc.cfg.MaxRequestsPerEmail, true); err != nil {
+	if err := uc.checkLimit(ctx, "email:"+email, uc.Cfg.MaxRequestsPerEmail, true); err != nil {
 		return nil, err
 	}
 
@@ -84,16 +97,16 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 		return nil, err
 	}
 
-	_, err := uc.users.GetByEmail(ctx, email)
+	_, err := uc.Users.GetByEmail(ctx, email)
 	switch {
 	case err == nil:
 		// Known address: proceed.
 	case errors.Is(err, domainErr.ErrNotFound):
-		if !uc.cfg.SelfSignup {
+		if !uc.Cfg.SelfSignup {
 			// Invitation-only deployment: there is nobody to mail. The caller
 			// still gets the standard response after the standard delay, so the
 			// silence is indistinguishable from a delivered code.
-			uc.log.InfoContext(ctx, "login code requested for unknown address", "provisioning", "disabled")
+			uc.Log.InfoContext(ctx, "login code requested for unknown address", "provisioning", "disabled")
 			return uc.response(), nil
 		}
 		// Self-signup: the account is created when the code is redeemed, not
@@ -103,7 +116,7 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 		return nil, err
 	}
 
-	code, digest, err := uc.codeSvc.Generate()
+	code, digest, err := uc.CodeSvc.Generate()
 	if err != nil {
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to generate login code", err)
 	}
@@ -113,7 +126,7 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 	// Retire outstanding codes before issuing a new one. Several live codes for
 	// one address multiply the guessing surface for the whole TTL, and a user
 	// who requested a second code has already stopped watching for the first.
-	if err := uc.codes.InvalidateActive(ctx, email, model.LoginCodePurposeLogin, now); err != nil {
+	if err := uc.Codes.InvalidateActive(ctx, email, model.LoginCodePurposeLogin, now); err != nil {
 		return nil, err
 	}
 
@@ -121,24 +134,28 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 		Email:       email,
 		CodeDigest:  digest,
 		Purpose:     model.LoginCodePurposeLogin,
-		MaxAttempts: uc.cfg.MaxAttempts,
-		ExpiresAt:   now.Add(uc.cfg.CodeTTL),
+		MaxAttempts: uc.Cfg.MaxAttempts,
+		ExpiresAt:   now.Add(uc.Cfg.CodeTTL),
 		RequestIP:   requestIP,
 		CreatedAt:   now,
 	}
-	if err := uc.codes.Create(ctx, record); err != nil {
+	if err := uc.Codes.Create(ctx, record); err != nil {
 		return nil, err
 	}
 
-	msg := template.LoginCode(notifyModel.Address{Email: email}, code, uc.cfg.CodeTTL)
-	messageID, err := uc.sender.Send(ctx, msg)
+	// Aynı ileti hem kodu hem bağlantıyı taşır: kullanıcı hangisini isterse
+	// onu kullanır. Bağlantı üretimi başarısız olursa ileti kodla gider —
+	// bağlantı bir kolaylıktır, girişin tek yolu değil.
+	magicToken := uc.issueMagicLink(ctx, email, now)
+	msg := template.LoginCode(notifyModel.Address{Email: email}, code, uc.Cfg.CodeTTL, uc.magicLinkURL(magicToken))
+	messageID, err := uc.Sender.Send(ctx, msg)
 	if err != nil {
 		// A code nobody can read is the same as no code at all, so this is a
 		// hard failure rather than a silent success. The stored code is left in
 		// place: it expires on its own, and burning it here would let a
 		// provider hiccup lock the address out of its own retry.
-		uc.log.ErrorContext(ctx, "login code delivery failed",
-			"provider", uc.sender.Name(),
+		uc.Log.ErrorContext(ctx, "login code delivery failed",
+			"provider", uc.Sender.Name(),
 			"error", err,
 		)
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to send login code", err)
@@ -147,33 +164,80 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 	// The address is deliberately absent from this line: it is the one field
 	// that would turn the log stream into the account list the endpoint refuses
 	// to be.
-	uc.log.InfoContext(ctx, "login code sent",
-		"provider", uc.sender.Name(),
+	uc.Log.InfoContext(ctx, "login code sent",
+		"provider", uc.Sender.Name(),
 		"message_id", messageID,
 		"code_id", record.ID,
+		"magic_link", magicToken != "",
 	)
 
+	// Kimlik henüz doğrulanmadığı için bu kayıtta organizasyon yoktur; sıfır
+	// UUID "kiracı öncesi olay" anlamına gelir. Adres de yazılmaz: denetim
+	// kaydı hiç silinmez, ve oraya yazılan her adres kalıcı bir hesap listesi
+	// üretirdi. Kayıt, kod kimliği üzerinden doğrulama olayına bağlanır.
+	uc.Audit.Record(ctx, auditService.Entry{
+		Action:       auditService.ActionLoginRequested,
+		ResourceType: "login_code",
+		ResourceID:   record.ID.String(),
+		IPAddress:    requestIP,
+		Metadata:     map[string]any{"magic_link": magicToken != ""},
+	})
+	if magicToken != "" {
+		uc.Audit.Record(ctx, auditService.Entry{
+			Action:       auditService.ActionMagicLinkSent,
+			ResourceType: "login_code",
+			ResourceID:   record.ID.String(),
+			IPAddress:    requestIP,
+		})
+	}
+
 	return uc.response(), nil
+}
+
+// issueMagicLink, tek kullanımlık bağlantı token'ını üretir. Üretici bağlı
+// değilse boş dönerek iletinin yalnızca kodla gitmesini sağlar.
+func (uc *RequestLoginCodeUseCase) issueMagicLink(ctx context.Context, email string, now time.Time) string {
+	if uc.MagicLinks == nil || uc.WebBaseURL == "" {
+		return ""
+	}
+	token, err := uc.MagicLinks.Issue(ctx, email, now)
+	if err != nil {
+		uc.Log.ErrorContext(ctx, "magic link üretilemedi, ileti yalnızca kodla gidiyor", "error", err)
+		return ""
+	}
+	return token
+}
+
+// magicLinkURL, token'ı web arayüzünün doğrulama sayfasına bağlar.
+//
+// Bağlantı tarayıcıda açılır; Electron deep-link'i bilerek kullanılmaz. Bir
+// deep-link, e-postadaki bağlantıyı yerel bir uygulamanın kayıtlı şemasına
+// teslim eder ve o şemayı kaydeden her uygulama token'ı görebilir.
+func (uc *RequestLoginCodeUseCase) magicLinkURL(token string) string {
+	if token == "" {
+		return ""
+	}
+	return strings.TrimRight(uc.WebBaseURL, "/") + "/auth/magic?token=" + url.QueryEscape(token)
 }
 
 func (uc *RequestLoginCodeUseCase) response() *dto.RequestLoginCodeResponse {
 	return &dto.RequestLoginCodeResponse{
 		Sent:               true,
-		ExpiresInSeconds:   int(uc.cfg.CodeTTL.Seconds()),
-		ResendAfterSeconds: int(uc.cfg.ResendCooldown.Seconds()),
+		ExpiresInSeconds:   int(uc.Cfg.CodeTTL.Seconds()),
+		ResendAfterSeconds: int(uc.Cfg.ResendCooldown.Seconds()),
 	}
 }
 
 func (uc *RequestLoginCodeUseCase) checkLimit(ctx context.Context, key string, limit int, enabled bool) error {
-	if !enabled || limit <= 0 || uc.limiter == nil {
+	if !enabled || limit <= 0 || uc.Limiter == nil {
 		return nil
 	}
-	allowed, retryAfter, err := uc.limiter.Allow(ctx, key, limit, uc.cfg.RateLimitWindow)
+	allowed, retryAfter, err := uc.Limiter.Allow(ctx, key, limit, uc.Cfg.RateLimitWindow)
 	if err != nil {
 		// Failing open is the deliberate choice: a Redis outage must not take
 		// the only sign-in path down with it. The per-address cooldown below
 		// runs off PostgreSQL and still throttles the obvious abuse.
-		uc.log.WarnContext(ctx, "rate limiter unavailable, allowing request", "error", err)
+		uc.Log.WarnContext(ctx, "rate limiter unavailable, allowing request", "error", err)
 		return nil
 	}
 	if !allowed {
@@ -185,11 +249,11 @@ func (uc *RequestLoginCodeUseCase) checkLimit(ctx context.Context, key string, l
 
 // checkCooldown enforces the minimum gap between two codes for one address.
 func (uc *RequestLoginCodeUseCase) checkCooldown(ctx context.Context, email string) error {
-	if uc.cfg.ResendCooldown <= 0 {
+	if uc.Cfg.ResendCooldown <= 0 {
 		return nil
 	}
 
-	latest, err := uc.codes.GetLatest(ctx, email, model.LoginCodePurposeLogin)
+	latest, err := uc.Codes.GetLatest(ctx, email, model.LoginCodePurposeLogin)
 	if err != nil {
 		if errors.Is(err, domainErr.ErrNotFound) {
 			return nil
@@ -198,8 +262,8 @@ func (uc *RequestLoginCodeUseCase) checkCooldown(ctx context.Context, email stri
 	}
 
 	elapsed := uc.now().UTC().Sub(latest.CreatedAt)
-	if elapsed < uc.cfg.ResendCooldown {
-		wait := (uc.cfg.ResendCooldown - elapsed).Round(time.Second)
+	if elapsed < uc.Cfg.ResendCooldown {
+		wait := (uc.Cfg.ResendCooldown - elapsed).Round(time.Second)
 		return domainErr.New(domainErr.ErrRateLimited,
 			"a code was already sent, retry in "+wait.String(), nil)
 	}
@@ -213,10 +277,10 @@ func (uc *RequestLoginCodeUseCase) checkCooldown(ctx context.Context, email stri
 // lookup. That difference is measurable over enough samples, so every answer is
 // stretched to the same floor.
 func (uc *RequestLoginCodeUseCase) padResponseTime(started time.Time) {
-	if uc.cfg.MinResponseTime <= 0 {
+	if uc.Cfg.MinResponseTime <= 0 {
 		return
 	}
-	if remaining := uc.cfg.MinResponseTime - uc.now().Sub(started); remaining > 0 {
+	if remaining := uc.Cfg.MinResponseTime - uc.now().Sub(started); remaining > 0 {
 		uc.sleep(remaining)
 	}
 }

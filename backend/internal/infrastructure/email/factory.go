@@ -17,10 +17,12 @@ import (
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 )
 
-// Provider names accepted in EMAIL_PROVIDER.
+// Provider names accepted in EMAIL_PROVIDER. They are aliases of the constants
+// in the config package so that validation and construction cannot drift.
 const (
-	ProviderResend = "resend"
-	ProviderNone   = "none"
+	ProviderResend = config.ProviderResend
+	ProviderSMTP   = config.ProviderSMTP
+	ProviderNone   = config.ProviderNone
 )
 
 // New builds the sender named by cfg.Provider.

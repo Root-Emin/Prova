@@ -2,11 +2,14 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/google/uuid"
 
 	"github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
 	iamEvent "github.com/masterfabric-go/masterfabric/internal/domain/iam/event"
@@ -23,6 +26,8 @@ type verifyFixture struct {
 	sender  *fakeSender
 	limiter *fakeLimiter
 	bus     *fakeEventBus
+	auth    *fakeAuthService
+	members *fakeMembershipResolver
 	slept   time.Duration
 	clock   time.Time
 }
@@ -37,13 +42,24 @@ func newVerifyFixture(t *testing.T, cfg config.AuthConfig, users *fakeUserRepo) 
 		sender:  newFakeSender(),
 		limiter: newFakeLimiter(),
 		bus:     newFakeEventBus(),
+		auth:    &fakeAuthService{},
+		members: &fakeMembershipResolver{orgID: uuid.New()},
 		clock:   time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC),
 	}
-	f.uc = NewVerifyLoginCodeUseCase(
-		f.users, f.codes, f.devices, fixedCodeService{code: "123456"},
-		fakeAuthService{}, f.sender, f.limiter, f.bus,
-		cfg, config.JWTConfig{ExpirationHours: 24}, discardLogger(),
-	)
+	f.uc = NewVerifyLoginCodeUseCase(VerifyDeps{
+		Users:       f.users,
+		Codes:       f.codes,
+		Devices:     f.devices,
+		CodeSvc:     fixedCodeService{code: "123456"},
+		Auth:        f.auth,
+		Memberships: f.members,
+		Sender:      f.sender,
+		Limiter:     f.limiter,
+		EventBus:    f.bus,
+		Cfg:         cfg,
+		JWTCfg:      config.JWTConfig{ExpirationHours: 24},
+		Log:         discardLogger(),
+	})
 	f.uc.now = func() time.Time { return f.clock }
 	f.uc.sleep = func(d time.Duration) { f.slept += d }
 	return f
@@ -386,4 +402,38 @@ func TestVerifyLoginCode_WorksWithoutDeviceInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, resp.Device)
 	assert.NotEmpty(t, resp.Token)
+}
+
+// Faz 0'ın düzelttiği hata burada kilitleniyor: token'a sıfır UUID yazıldığı
+// sürece RBAC sıfır organizasyonda izin arar ve her korumalı alan 403 döner.
+func TestVerifyLoginCode_WritesResolvedOrgIntoTokenClaims(t *testing.T) {
+	cfg := testAuthConfig()
+	user := &model.User{Email: "user@corp.com", Status: model.UserStatusActive}
+	f := newVerifyFixture(t, cfg, newFakeUserRepo(user))
+	f.seedCode("user@corp.com", cfg)
+
+	resp, err := f.uc.Execute(context.Background(),
+		dto.VerifyLoginCodeRequest{Email: "user@corp.com", Code: "123456"}, "203.0.113.1")
+
+	require.NoError(t, err)
+	require.NotNil(t, f.auth.lastClaims)
+	assert.NotEqual(t, uuid.Nil, f.auth.lastClaims.OrganizationID, "org_id sıfır UUID olamaz")
+	assert.Equal(t, f.members.orgID, f.auth.lastClaims.OrganizationID)
+	assert.Equal(t, f.members.orgID, resp.OrganizationID, "istemci de etkin kiracıyı görmeli")
+}
+
+// Üyelik çözülemezse giriş tamamlanmamalı: organizasyonsuz bir token,
+// kullanıcının içeri girip hiçbir şey yapamaması demektir.
+func TestVerifyLoginCode_FailsWhenMembershipCannotBeResolved(t *testing.T) {
+	cfg := testAuthConfig()
+	user := &model.User{Email: "user@corp.com", Status: model.UserStatusActive}
+	f := newVerifyFixture(t, cfg, newFakeUserRepo(user))
+	f.members.err = errors.New("veritabanı yok")
+	f.seedCode("user@corp.com", cfg)
+
+	_, err := f.uc.Execute(context.Background(),
+		dto.VerifyLoginCodeRequest{Email: "user@corp.com", Code: "123456"}, "203.0.113.1")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domainErr.ErrInternal)
 }

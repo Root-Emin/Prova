@@ -47,10 +47,16 @@ type VerifyLoginCodeRequest struct {
 
 // VerifyLoginCodeResponse is the successful sign-in result.
 type VerifyLoginCodeResponse struct {
-	Token     string        `json:"token"`
-	ExpiresAt time.Time     `json:"expires_at"`
-	User      UserInfo      `json:"user"`
-	Device    *PairedDevice `json:"device,omitempty"`
+	Token string `json:"token"`
+	// RefreshToken, rotasyonlu yenileme zincirinin ilk halkası. Access token
+	// kısa ömürlüdür; oturumun devamı bu değere bağlıdır.
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	// OrganizationID, token'a yazılan etkin kiracı. İstemci bunu görüntüler;
+	// yetki kararları yine sunucuda claim üzerinden verilir.
+	OrganizationID uuid.UUID     `json:"organization_id"`
+	User           UserInfo      `json:"user"`
+	Device         *PairedDevice `json:"device,omitempty"`
 }
 
 // PairedDevice describes the device bound to the account during this sign-in.

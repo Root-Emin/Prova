@@ -319,17 +319,35 @@ func (l *fakeLimiter) Allow(_ context.Context, key string, limit int, _ time.Dur
 
 // --- auth service ---
 
-type fakeAuthService struct{ failWith error }
+type fakeAuthService struct {
+	failWith error
+	// lastClaims, token'a hangi claim'lerin yazıldığını testin görebilmesi
+	// için saklanır. org_id'nin doğru dolduğu ancak buradan doğrulanabilir.
+	lastClaims *service.TokenClaims
+}
 
-func (s fakeAuthService) GenerateToken(_ context.Context, claims service.TokenClaims) (string, error) {
+func (s *fakeAuthService) GenerateToken(_ context.Context, claims service.TokenClaims) (string, error) {
 	if s.failWith != nil {
 		return "", s.failWith
 	}
+	s.lastClaims = &claims
 	return "token-for-" + claims.UserID.String(), nil
 }
 
-func (s fakeAuthService) ValidateToken(context.Context, string) (*service.TokenClaims, error) {
+func (s *fakeAuthService) ValidateToken(context.Context, string) (*service.TokenClaims, error) {
 	return nil, errors.New("not implemented")
+}
+
+// fakeMembershipResolver, sabit bir organizasyon döndürür.
+type fakeMembershipResolver struct {
+	orgID uuid.UUID
+	err   error
+	calls int
+}
+
+func (r *fakeMembershipResolver) ResolveActiveOrg(context.Context, uuid.UUID, string) (uuid.UUID, error) {
+	r.calls++
+	return r.orgID, r.err
 }
 
 // --- event bus ---

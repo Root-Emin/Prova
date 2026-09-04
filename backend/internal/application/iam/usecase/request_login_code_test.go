@@ -57,10 +57,15 @@ func newRequestFixture(t *testing.T, cfg config.AuthConfig, users *fakeUserRepo)
 		limiter: newFakeLimiter(),
 		clock:   time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC),
 	}
-	f.uc = NewRequestLoginCodeUseCase(
-		f.users, f.codes, fixedCodeService{code: "123456"},
-		f.sender, f.limiter, cfg, discardLogger(),
-	)
+	f.uc = NewRequestLoginCodeUseCase(RequestDeps{
+		Users:   f.users,
+		Codes:   f.codes,
+		CodeSvc: fixedCodeService{code: "123456"},
+		Sender:  f.sender,
+		Limiter: f.limiter,
+		Cfg:     cfg,
+		Log:     discardLogger(),
+	})
 	// A real clock would make the padding assertions flaky and slow. These
 	// hooks let the test observe how long the use case *intended* to wait.
 	f.uc.now = func() time.Time { return f.clock }

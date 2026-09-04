@@ -1,3 +1,4 @@
+// Command server, Prova backend'ini ayağa kaldırır.
 package main
 
 import (
@@ -13,35 +14,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	// Infrastructure
+	iamAppService "github.com/masterfabric-go/masterfabric/internal/application/iam/service"
+	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
+	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
+	notify "github.com/masterfabric-go/masterfabric/internal/domain/notification/service"
+	infraAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/audit"
 	infraAuth "github.com/masterfabric-go/masterfabric/internal/infrastructure/auth"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email"
-	apimgmtHandler "github.com/masterfabric-go/masterfabric/internal/infrastructure/http/handler/apimanagement"
-	auditHandler "github.com/masterfabric-go/masterfabric/internal/infrastructure/http/handler/audit"
-	iamHandler "github.com/masterfabric-go/masterfabric/internal/infrastructure/http/handler/iam"
-	realtimeHandler "github.com/masterfabric-go/masterfabric/internal/infrastructure/http/handler/realtime"
-	tenantHandler "github.com/masterfabric-go/masterfabric/internal/infrastructure/http/handler/tenant"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/http/router"
-	infraKafka "github.com/masterfabric-go/masterfabric/internal/infrastructure/kafka"
 	infraMongo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo"
-	pgApimgmt "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/apimanagement"
 	pgAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/audit"
 	pgIam "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/iam"
 	pgTenant "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/tenant"
-	infraWS "github.com/masterfabric-go/masterfabric/internal/infrastructure/websocket"
-
-	// Application use cases
-	apimgmtUC "github.com/masterfabric-go/masterfabric/internal/application/apimanagement/usecase"
-	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
-	realtimeUC "github.com/masterfabric-go/masterfabric/internal/application/realtime/usecase"
-	tenantUC "github.com/masterfabric-go/masterfabric/internal/application/tenant/usecase"
-
-	// Gateway
-	"github.com/masterfabric-go/masterfabric/internal/gateway"
-	gatewayInterceptors "github.com/masterfabric-go/masterfabric/internal/infrastructure/gateway/interceptors"
-
-	// Shared
-	notify "github.com/masterfabric-go/masterfabric/internal/domain/notification/service"
 	"github.com/masterfabric-go/masterfabric/internal/shared/cache"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 	"github.com/masterfabric-go/masterfabric/internal/shared/database"
@@ -60,35 +44,38 @@ func main() {
 }
 
 func run() error {
-	// Load configuration
 	cfg := config.Load()
 
-	// Initialize logger
 	log := logger.New(cfg.Log.Level, cfg.Log.Format)
 	slog.SetDefault(log)
 
-	log.Info("starting masterfabric-go",
+	// Doğrulama, herhangi bir bağlantı açılmadan önce çalışır. Eksik bir sır
+	// yüzünden güvensiz başlayan bir sunucu, hatayı ancak istismar edildiğinde
+	// gösterir; burada durmak en ucuz keşiftir.
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	cfg.Harden()
+
+	log.Info("starting prova backend",
 		"host", cfg.Server.Host,
 		"port", cfg.Server.Port,
+		"environment", cfg.Environment,
 	)
-
-	if cfg.JWT.Secret == "change-me-in-production" {
-		log.Warn("JWT_SECRET is unset; authentication uses a known default value")
+	if !cfg.IsProduction() && cfg.JWT.Secret == config.DefaultJWTSecret {
+		log.Warn("JWT_SECRET varsayılan değerde; yalnızca geliştirme için kabul edilir")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Initialize OpenTelemetry
 	otelShutdown, err := telemetry.Setup(ctx, version.ServiceName, version.Version)
 	if err != nil {
 		log.Warn("opentelemetry setup failed", "error", err)
 	} else {
 		defer func() { _ = otelShutdown(context.Background()) }()
-		log.Info("opentelemetry initialized")
 	}
 
-	// Initialize PostgreSQL
 	db, err := database.NewPostgresPool(ctx, cfg.Database)
 	if err != nil {
 		log.Warn("postgres unavailable, running without database", "error", err)
@@ -98,7 +85,6 @@ func run() error {
 		log.Info("connected to postgres")
 	}
 
-	// Initialize MongoDB (object database for the versioned training documents)
 	mongoDB, err := database.NewMongoClient(ctx, cfg.Mongo)
 	if err != nil {
 		log.Warn("mongodb unavailable, running without object database", "error", err)
@@ -108,14 +94,13 @@ func run() error {
 		log.Info("connected to mongodb", "database", cfg.Mongo.Database)
 
 		if err := infraMongo.EnsureIndexes(ctx, mongoDB.Database); err != nil {
-			// Index creation failing is not cosmetic here: the unique
-			// (org_id, lineage_id, version) index is what keeps two concurrent
-			// publishes from producing two documents with the same version.
+			// Index oluşturma burada kozmetik değil: (org_id, lineage_id,
+			// version) benzersizliği, iki eşzamanlı yayının aynı sürüm
+			// numarasını üretmesini engelleyen tek şeydir.
 			log.Error("failed to ensure mongodb indexes", "error", err)
 		}
 	}
 
-	// Initialize Redis
 	redisClient, err := cache.NewRedisClient(ctx, cfg.Redis)
 	if err != nil {
 		log.Warn("redis unavailable, running without cache", "error", err)
@@ -125,33 +110,23 @@ func run() error {
 		log.Info("connected to redis")
 	}
 
-	// Initialize event bus (Kafka or in-process)
-	eventBus := initEventBus(ctx, cfg, log)
+	// Olay veri yolu her zaman süreç içidir. Kafka bağımlılığı Prova'nın
+	// ihtiyacı olmayan bir dağıtık kurulum getiriyordu; kod repoda duruyor ama
+	// bağlanmıyor.
+	eventBus := events.NewInProcessBus(log, 256)
 	defer func() { _ = eventBus.Close() }()
 
-	// Initialize the transactional e-mail sender.
-	//
-	// Chosen by configuration through a factory: the auth use cases depend on
-	// the notification.Sender port and never learn which provider is behind it.
 	emailSender, err := email.New(cfg.Email)
 	if err != nil {
-		// Sign-in is passwordless, so e-mail delivery is not a side feature —
-		// it is the only way into the product. Booting with a half-configured
-		// mailer would mean booting an application nobody can log into, and
-		// finding that out one failed login at a time.
-		return fmt.Errorf("email sender: %w "+
-			"(set EMAIL_PROVIDER=none to boot without delivery while the sending domain is being set up; "+
-			"the login flow then fails loudly instead of silently)", err)
+		return fmt.Errorf("email sender: %w", err)
 	}
 	log.Info("email sender initialized", "provider", emailSender.Name())
 
-	// Build dependencies
-	deps := buildDependencies(log, cfg, db, redisClient, eventBus, emailSender)
+	deps, cleanup := buildDependencies(log, cfg, db, mongoDB, redisClient, eventBus, emailSender)
+	defer cleanup()
 
-	// Build router
 	r := router.New(deps)
 
-	// Create HTTP server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:         addr,
@@ -161,7 +136,6 @@ func run() error {
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
-	// Graceful shutdown
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
@@ -191,51 +165,19 @@ func run() error {
 	return nil
 }
 
-// initEventBus creates either a Kafka bus or an in-process bus based on config.
-func initEventBus(ctx context.Context, cfg *config.Config, log *slog.Logger) events.EventBus {
-	if !cfg.Kafka.Enabled {
-		log.Info("using in-process event bus (set KAFKA_ENABLED=true to use Kafka)")
-		return events.NewInProcessBus(log, 256)
-	}
-
-	log.Info("initializing kafka event bus",
-		"brokers", cfg.Kafka.Brokers,
-		"group_id", cfg.Kafka.GroupID,
-	)
-
-	// Ensure topics exist
-	if len(cfg.Kafka.Brokers) > 0 {
-		if err := infraKafka.EnsureTopics(
-			ctx,
-			cfg.Kafka.Brokers[0],
-			infraKafka.DefaultTopics(),
-			cfg.Kafka.NumPartitions,
-			cfg.Kafka.ReplicationFactor,
-			log,
-		); err != nil {
-			log.Warn("failed to ensure kafka topics, falling back to in-process bus", "error", err)
-			return events.NewInProcessBus(log, 256)
-		}
-	}
-
-	kafkaBus := infraKafka.NewBus(cfg.Kafka.Brokers, cfg.Kafka.GroupID, log)
-
-	// Start consuming (after subscriptions are registered in buildDependencies)
-	// We start consumption with a background context so it outlives the startup ctx.
-	kafkaBus.Start(context.Background())
-
-	log.Info("kafka event bus initialized")
-	return kafkaBus
-}
-
+// buildDependencies, tüm bağımlılık grafiğini kurar ve kapanışta çalışacak
+// temizleyiciyi döndürür.
 func buildDependencies(
 	log *slog.Logger,
 	cfg *config.Config,
 	db *pgxpool.Pool,
+	mongoDB *database.MongoDB,
 	redisClient *redis.Client,
 	eventBus events.EventBus,
 	emailSender notify.Sender,
-) router.Dependencies {
+) (router.Dependencies, func()) {
+	noop := func() {}
+
 	deps := router.Dependencies{
 		Logger:             log,
 		DB:                 db,
@@ -245,162 +187,78 @@ func buildDependencies(
 	}
 
 	if db == nil {
-		log.Warn("database not available, API endpoints will not work")
-		return deps
+		log.Warn("veritabanı yok; yalnızca sağlık uçları çalışacak")
+		return deps, noop
 	}
 
-	// --- Repositories ---
+	// --- Depolar ---
 	userRepo := pgIam.NewUserRepo(db)
 	roleRepo := pgIam.NewRoleRepo(db)
 	loginCodeRepo := pgIam.NewLoginCodeRepo(db)
 	deviceRepo := pgIam.NewDeviceRepo(db)
+	orgUserRepo := pgIam.NewOrgUserRepo(db)
 	orgRepo := pgTenant.NewOrgRepo(db)
-	workspaceRepo := pgTenant.NewWorkspaceRepository(db)
-	appRepo := pgTenant.NewAppRepo(db)
-	apiKeyRepo := pgTenant.NewAPIKeyRepo(db)
-	endpointRepo := pgApimgmt.NewEndpointRepo(db)
-	policyRepo := pgApimgmt.NewPolicyRepo(db)
 	auditRepo := pgAudit.NewAuditRepo(db)
 
-	// --- Services ---
+	// --- Servisler ---
 	jwtService := infraAuth.NewJWTService(cfg.JWT)
 	rbacService := infraAuth.NewRBACService(roleRepo, redisClient)
+	auditRecorder := infraAudit.NewRecorder(auditRepo, log)
+	memberships := iamAppService.NewMembershipService(orgRepo, orgUserRepo, roleRepo, log)
 
 	loginCodeService, err := infraAuth.NewLoginCodeService(cfg.Auth)
 	if err != nil {
-		// Without a pepper the stored digests are one rainbow table away from
-		// the codes themselves, and the whole login flow rests on those digests.
-		log.Error("passwordless authentication disabled", "error", err)
-		return deps
+		// Pepper olmadan saklanan digest'ler kodun kendisinden bir gökkuşağı
+		// tablosu uzaktadır, ve tüm giriş akışı o digest'lere dayanır.
+		log.Error("parolasız kimlik doğrulama devre dışı", "error", err)
+		return deps, noop
 	}
 
-	// Redis keeps one window across replicas; the in-memory limiter is a
-	// degraded fallback whose window is per instance.
 	var limiter ratelimit.Limiter
 	if redisClient != nil {
 		limiter = ratelimit.NewRedisLimiter(redisClient, "ratelimit:auth")
 	} else {
-		log.Warn("redis unavailable, auth rate limits are per-instance only")
+		log.Warn("redis yok; kimlik doğrulama limitleri yalnızca bu örnek için geçerli")
 		limiter = ratelimit.NewMemoryLimiter()
 	}
 
-	deps.AuthService = jwtService
-	deps.RBACService = rbacService
-	deps.OrgRepo = orgRepo
-	deps.WorkspaceRepo = workspaceRepo
-
-	// --- Use cases (with event bus for domain event publishing) ---
-	requestCodeUC := iamUC.NewRequestLoginCodeUseCase(
-		userRepo, loginCodeRepo, loginCodeService, emailSender, limiter, cfg.Auth, log,
-	)
-	verifyCodeUC := iamUC.NewVerifyLoginCodeUseCase(
-		userRepo, loginCodeRepo, deviceRepo, loginCodeService, jwtService,
-		emailSender, limiter, eventBus, cfg.Auth, cfg.JWT, log,
-	)
-	assignRoleUC := iamUC.NewAssignRoleUseCase(roleRepo, rbacService, eventBus)
-	createOrgUC := tenantUC.NewCreateOrgUseCase(orgRepo, eventBus)
-	createWorkspaceUC := tenantUC.NewCreateWorkspaceUseCase(workspaceRepo, orgRepo, eventBus)
-	listWorkspacesUC := tenantUC.NewListWorkspacesUseCase(workspaceRepo)
-	updateWorkspaceUC := tenantUC.NewUpdateWorkspaceUseCase(workspaceRepo)
-	createAppUC := tenantUC.NewCreateAppUseCase(appRepo, orgRepo, eventBus)
-	manageKeysUC := tenantUC.NewManageAPIKeysUseCase(apiKeyRepo)
-	defineEndpointUC := apimgmtUC.NewDefineEndpointUseCase(endpointRepo, eventBus)
-	updatePolicyUC := apimgmtUC.NewUpdatePolicyUseCase(policyRepo)
-	retireEndpointUC := apimgmtUC.NewRetireEndpointUseCase(endpointRepo, eventBus)
-	activateEndpointUC := apimgmtUC.NewActivateEndpointUseCase(endpointRepo, eventBus)
-
-	// --- Register sample Kafka consumers ---
-	// Log all IAM events
-	eventBus.Subscribe(events.TopicIAM, func(ctx context.Context, event events.Event) error {
-		log.Info("iam event received", "event", event)
-		return nil
+	// --- Use case'ler ---
+	_ = iamUC.NewRequestLoginCodeUseCase(iamUC.RequestDeps{
+		Users:      userRepo,
+		Codes:      loginCodeRepo,
+		CodeSvc:    loginCodeService,
+		Sender:     emailSender,
+		Limiter:    limiter,
+		Audit:      auditRecorder,
+		Cfg:        cfg.Auth,
+		Log:        log,
+		WebBaseURL: cfg.Token.WebBaseURL,
 	})
-	// Log all tenant events
-	eventBus.Subscribe(events.TopicTenant, func(ctx context.Context, event events.Event) error {
-		log.Info("tenant event received", "event", event)
-		return nil
-	})
-	// Log all API management events
-	eventBus.Subscribe(events.TopicAPIManagement, func(ctx context.Context, event events.Event) error {
-		log.Info("api-management event received", "event", event)
-		return nil
+	_ = iamUC.NewVerifyLoginCodeUseCase(iamUC.VerifyDeps{
+		Users:       userRepo,
+		Codes:       loginCodeRepo,
+		Devices:     deviceRepo,
+		CodeSvc:     loginCodeService,
+		Auth:        jwtService,
+		Memberships: memberships,
+		Sender:      emailSender,
+		Limiter:     limiter,
+		EventBus:    eventBus,
+		Audit:       auditRecorder,
+		Cfg:         cfg.Auth,
+		JWTCfg:      cfg.JWT,
+		Log:         log,
 	})
 
-	// --- Handlers ---
-	deps.IAMHandler = iamHandler.NewHandler(requestCodeUC, verifyCodeUC, assignRoleUC, userRepo)
-	deps.TenantHandler = tenantHandler.NewHandler(
-		createOrgUC,
-		createAppUC,
-		manageKeysUC,
-		createWorkspaceUC,
-		listWorkspacesUC,
-		updateWorkspaceUC,
-		orgRepo,
-		appRepo,
-	)
-	deps.APIMgmtHandler = apimgmtHandler.NewHandler(defineEndpointUC, updatePolicyUC, retireEndpointUC, activateEndpointUC, endpointRepo, policyRepo)
-	deps.AuditHandler = auditHandler.NewHandler(auditRepo)
+	_ = rbacService
+	_ = mongoDB
 
-	// --- WebSocket real-time hub ---
-	wsHub := infraWS.NewHub(log, cfg.WebSocket.MaxConnections)
-	eventBridge := infraWS.NewEventBridge(wsHub, appRepo, log)
-	eventBridge.Register(eventBus)
-
-	validateConnectUC := realtimeUC.NewValidateConnectUseCase(appRepo, rbacService)
-	wsUpgrader := infraWS.NewUpgrader(infraWS.UpgraderConfig{
-		ReadBufferSize:  cfg.WebSocket.ReadBufferSize,
-		WriteBufferSize: cfg.WebSocket.WriteBufferSize,
-		AllowedOrigins:  cfg.Server.CORSAllowedOrigins,
-	})
-	deps.RealtimeHandler = realtimeHandler.NewHandler(realtimeHandler.Config{
-		ValidateUC:   validateConnectUC,
-		AuthService:  jwtService,
-		Hub:          wsHub,
-		Upgrader:     wsUpgrader,
-		PingInterval: cfg.WebSocket.PingIntervalSec,
-		Logger:       log,
-		Enabled:      cfg.WebSocket.Enabled,
-	})
-
-	// --- Gateway pipeline with interceptors ---
-	// Create interceptor chain: schema validation, PII masking, request/response transformers
-	piiMasker := gatewayInterceptors.NewPIIMasker(
-		[]string{"password", "password_hash", "api_key", "secret", "token", "ssn", "credit_card"},
-		"***",
-	)
-	schemaValidator := gatewayInterceptors.NewSchemaValidator()
-
-	// Create dynamic handler resolver for routing requests to backend service handlers
-	// This supports:
-	// 1. Registered handlers (if you register specific handlers)
-	// 2. HTTP proxy to external services (if backend_service is a URL or configured)
-	// 3. Generic dynamic database handler (automatically performs CRUD operations)
-	backendRegistry := gateway.NewBackendRegistry()
-	dynamicResolver := gateway.NewDynamicHandlerResolver(backendRegistry, log, db)
-
-	// Optional: Register service configurations for HTTP proxying
-	// Example:
-	// dynamicResolver.RegisterServiceConfig("product-service", gateway.ServiceConfig{
-	//     BaseURL: "https://api.example.com/products",
-	//     Headers: map[string]string{"Authorization": "Bearer token"},
-	// })
-
-	// Optional: Register specific handlers for services that need custom logic
-	// Example:
-	// productHandler := handlers.NewProductHandler(...)
-	// backendRegistry.Register("product-service", productHandler)
-
-	// Wire interceptors into gateway pipeline with dynamic resolver
-	deps.GatewayPipeline = gateway.NewPipeline(
-		endpointRepo,
-		policyRepo,
-		rbacService,
-		redisClient,
-		log,
-		dynamicResolver, // Dynamic handler resolver (supports registered handlers, HTTP proxy, and generic handling)
-		schemaValidator, // Schema validation interceptor
-		piiMasker,       // PII masking interceptor
-	)
-
-	return deps
+	cleanup := func() {
+		// Denetim yazımları eşzamansızdır; süreç ölmeden önce beklenir, yoksa
+		// son işlemin kaydı kaybolur.
+		auditRecorder.Wait()
+	}
+	return deps, cleanup
 }
+
+var _ auditService.Recorder = (*infraAudit.Recorder)(nil)
