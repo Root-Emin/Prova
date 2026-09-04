@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
+	provaMongo "github.com/masterfabric-go/masterfabric/internal/infrastructure/mongo"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 )
 
@@ -27,7 +28,12 @@ func NewMongoClient(ctx context.Context, cfg config.MongoConfig) (*MongoDB, erro
 		ApplyURI(cfg.URI).
 		SetConnectTimeout(cfg.ConnectTimeout).
 		SetMaxPoolSize(cfg.MaxPoolSize).
-		SetMinPoolSize(cfg.MinPoolSize)
+		SetMinPoolSize(cfg.MinPoolSize).
+		// UUID'ler BSON binary (subtype 4) olarak yazılır. Varsayılan
+		// davranış onları on altı elemanlı bir dizi yapardı: mongosh'ta
+		// okunamaz, index'lerde şişkin, ve başka dildeki bir istemci için
+		// UUID olarak görünmez.
+		SetRegistry(provaMongo.NewRegistry())
 
 	client, err := mongo.Connect(opts)
 	if err != nil {

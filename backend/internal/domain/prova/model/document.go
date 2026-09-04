@@ -1,11 +1,13 @@
-// Package model holds the training documents: scenarios, characters, rubrics
-// and the sessions played against them.
+// Package model, Prova'nın nesne veritabanında yaşayan belgelerini tanımlar:
+// senaryolar, karakterler, rubrikler, LLM profilleri ve bunlara karşı oynanan
+// oturumlar.
 //
-// Every document here is immutable and versioned. Editing a scenario does not
-// change a row; it publishes a new version, and the old one stays exactly as it
-// was. This is not tidiness — it is the product's core claim. A certificate has
-// to be defensible years later, which means the exact scenario, character and
-// rubric it was awarded under must still be readable in their original form.
+// Buradaki her belge sürümlenmiştir ve yayınlandıktan sonra değişmez. Bir
+// senaryoyu düzenlemek satırı güncellemez; yeni bir sürüm yayınlar ve eski
+// sürüm olduğu gibi kalır. Bu düzen sevgisi değil, ürünün temel iddiasıdır:
+// bir sertifika yıllar sonra savunulabilir olmalı, ve bu da o sertifikanın
+// verildiği senaryonun, karakterin ve rubriğin özgün hâliyle okunabilmesini
+// gerektirir.
 package model
 
 import (
