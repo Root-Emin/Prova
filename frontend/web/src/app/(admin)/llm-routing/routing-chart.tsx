@@ -4,7 +4,7 @@ import type { ModelUsage } from "./mock"
 
 /**
  * A single bar chart. No charting library is pulled in; the bars are drawn
- * with surface widths. The green is the brand colour, it carries no status.
+ * with surface widths. The slate is the brand colour, it carries no status.
  */
 export function RoutingChart({ data }: { data: ModelUsage[] }) {
   const max = Math.max(...data.map((line) => line.session))

@@ -7,8 +7,14 @@ type RubricStatusView = {
   /** Text label — colour alone is not enough. */
   label: string
   icon: LucideIcon
-  /** Colour of the icon and the text. */
+  /** Colour of the icon and the text inside the filled badge. */
   text: string
+  /**
+   * Colour for the surfaceless inline variant. The badge separates states by
+   * fill weight, which an inline label has no room for, so there it falls back
+   * to a text tone that stays readable on the page background.
+   */
+  inline: string
   /** Badge surface. */
   surface: string
   /** Badge border. */
@@ -25,6 +31,7 @@ export const rubricStatusView: Record<RubricStatus, RubricStatusView> = {
   unevaluated: {
     label: "Değerlendirilmedi",
     icon: Circle,
+    inline: "text-muted-foreground",
     text: "text-muted-foreground",
     surface: "bg-muted",
     border: "border-border",
@@ -32,6 +39,7 @@ export const rubricStatusView: Record<RubricStatus, RubricStatusView> = {
   passed: {
     label: "Geçti",
     icon: Check,
+    inline: "text-pass",
     text: "text-primary-foreground",
     surface: "bg-pass",
     border: "border-pass",
@@ -39,6 +47,7 @@ export const rubricStatusView: Record<RubricStatus, RubricStatusView> = {
   partial: {
     label: "Kısmi",
     icon: AlertTriangle,
+    inline: "text-ember-ink",
     text: "text-foreground",
     surface: "bg-partial/20",
     border: "border-partial",
@@ -46,6 +55,7 @@ export const rubricStatusView: Record<RubricStatus, RubricStatusView> = {
   failed: {
     label: "Kaldı",
     icon: X,
+    inline: "text-ember-ink",
     text: "text-foreground",
     surface: "bg-fail",
     border: "border-fail",

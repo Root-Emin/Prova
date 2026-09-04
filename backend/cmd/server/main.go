@@ -21,6 +21,7 @@ import (
 	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
 	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
 	notify "github.com/masterfabric-go/masterfabric/internal/domain/notification/service"
+	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	infraAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/audit"
 	infraAuth "github.com/masterfabric-go/masterfabric/internal/infrastructure/auth"
@@ -270,6 +271,11 @@ func buildDependencies(
 	var (
 		sessionUC      *provaUC.SessionUseCase
 		routingStatsUC *provaUC.RoutingStatsUseCase
+		characterUC    *provaUC.ContentUseCase[provaModel.Character, *provaModel.Character]
+		scenarioUC     *provaUC.ContentUseCase[provaModel.Scenario, *provaModel.Scenario]
+		rubricUC       *provaUC.ContentUseCase[provaModel.Rubric, *provaModel.Rubric]
+		llmProfileUC   *provaUC.LLMProfileUseCase
+		gateway        *provaAppService.Gateway
 		broker         *realtime.SessionBroker
 		sessionRepo    *provaMongoRepo.SessionRepo
 		scoreRepo      *provaMongoRepo.ScoreRepo
@@ -289,7 +295,7 @@ func buildDependencies(
 		routingRepo = provaMongoRepo.NewRoutingRepo(mongoDB.Database)
 
 		broker = realtime.NewSessionBroker(log)
-		gateway := provaAppService.NewGateway(
+		gateway = provaAppService.NewGateway(
 			profileRepo,
 			routingRepo,
 			llm.NewClient(cfg.LLM.RequestTimeout),
@@ -303,6 +309,10 @@ func buildDependencies(
 			log,
 		)
 		routingStatsUC = provaUC.NewRoutingStatsUseCase(routingRepo, profileRepo)
+		characterUC = provaUC.NewContentUseCase[provaModel.Character](charRepo, auditRecorder, "character")
+		scenarioUC = provaUC.NewContentUseCase[provaModel.Scenario](scenRepo, auditRecorder, "scenario")
+		rubricUC = provaUC.NewContentUseCase[provaModel.Rubric](rubRepo, auditRecorder, "rubric")
+		llmProfileUC = provaUC.NewLLMProfileUseCase(profileRepo, gateway, auditRecorder)
 		sessionUC = provaUC.NewSessionUseCase(provaUC.SessionDeps{
 			Sessions:   sessionRepo,
 			Scores:     scoreRepo,
@@ -338,6 +348,10 @@ func buildDependencies(
 		LLMProfileRepo: orNilProfile(profileRepo),
 		RoutingRepo:    orNilRouting(routingRepo),
 		RoutingStatsUC: routingStatsUC,
+		CharacterUC:    characterUC,
+		ScenarioUC:     scenarioUC,
+		RubricUC:       rubricUC,
+		LLMProfileUC:   llmProfileUC,
 		Broker:         broker,
 	}
 	deps.GraphQLHandler = infraGQL.NewServer(infraGQL.ServerConfig{

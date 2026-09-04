@@ -26,7 +26,7 @@ export function MandatoryBanner({
         <ul className="mt-2 space-y-1">
           {failedCriteria.map((criterion) => (
             <li key={criterion.code} className="text-sm text-foreground">
-              <span className="prova-meta uppercase">{criterion.code}</span>{" "}
+              <span className="prova-meta text-foreground uppercase">{criterion.code}</span>{" "}
               {criterion.name}
             </li>
           ))}

@@ -14,6 +14,7 @@ import (
 	auditRepo "github.com/masterfabric-go/masterfabric/internal/domain/audit/repository"
 	iamRepo "github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	iamService "github.com/masterfabric-go/masterfabric/internal/domain/iam/service"
+	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/realtime"
 )
@@ -51,5 +52,12 @@ type Resolver struct {
 	LLMProfileRepo provaRepo.LLMProfileRepository
 	RoutingRepo    provaRepo.RoutingRepository
 	RoutingStatsUC *provaUC.RoutingStatsUseCase
-	Broker         *realtime.SessionBroker
+
+	// İçerik yazma akışları. Generic ContentUseCase, dört belge türünün
+	// paylaştığı oluştur/düzenle/yayınla üçlüsünü tek yerde tutuyor.
+	CharacterUC  *provaUC.ContentUseCase[provaModel.Character, *provaModel.Character]
+	ScenarioUC   *provaUC.ContentUseCase[provaModel.Scenario, *provaModel.Scenario]
+	RubricUC     *provaUC.ContentUseCase[provaModel.Rubric, *provaModel.Rubric]
+	LLMProfileUC *provaUC.LLMProfileUseCase
+	Broker       *realtime.SessionBroker
 }

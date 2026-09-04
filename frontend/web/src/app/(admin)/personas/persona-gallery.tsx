@@ -51,14 +51,18 @@ export function PersonaGallery({
               {/* İllüstrasyonlar saydam zeminli; panel rengin açık tonudur. */}
               <span
                 className={cn(
-                  "flex h-[210px] shrink-0 items-start overflow-hidden border-b border-border",
+                  "flex h-[220px] shrink-0 items-start overflow-hidden border-b border-border pt-3",
                   renk.soft
                 )}
               >
+                {/* Görsel gerçek boyutunda 1024px+; kart genişliğine indiriliyor. */}
                 <Image
                   src={profile.image}
                   alt=""
-                  sizes="240px"
+                  width={240}
+                  height={Math.round(
+                    (240 * profile.image.height) / profile.image.width
+                  )}
                   className="h-auto w-full"
                 />
               </span>

@@ -48,7 +48,7 @@ function RubricStatusInline({
       data-status={status}
       className={cn(
         "inline-flex items-center gap-1.5 text-xs font-medium",
-        view.text,
+        view.inline,
         className
       )}
     >

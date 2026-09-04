@@ -87,47 +87,127 @@ func (r *mutationResolver) RevokeDevice(ctx context.Context, deviceID uuid.UUID)
 
 // CreateCharacter is the resolver for the createCharacter field.
 func (r *mutationResolver) CreateCharacter(ctx context.Context, input model.CharacterInput) (*model.Character, error) {
-	return nil, notImplemented("createCharacter")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	created, err := r.CharacterUC.Create(ctx, scopeOf(v), v.UserID, applyCharacterInput(input))
+	if err != nil {
+		return nil, err
+	}
+	return mapCharacter(created), nil
 }
 
 // UpdateCharacter is the resolver for the updateCharacter field.
 func (r *mutationResolver) UpdateCharacter(ctx context.Context, lineageID uuid.UUID, input model.CharacterInput) (*model.Character, error) {
-	return nil, notImplemented("updateCharacter")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := r.CharacterUC.Update(ctx, scopeOf(v), v.UserID, lineageID, applyCharacterInput(input))
+	if err != nil {
+		return nil, err
+	}
+	return mapCharacter(updated), nil
 }
 
 // PublishCharacter is the resolver for the publishCharacter field.
 func (r *mutationResolver) PublishCharacter(ctx context.Context, lineageID uuid.UUID, version int) (*model.Character, error) {
-	return nil, notImplemented("publishCharacter")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	published, err := r.CharacterUC.Publish(ctx, scopeOf(v), v.UserID, lineageID, version)
+	if err != nil {
+		return nil, err
+	}
+	return mapCharacter(published), nil
 }
 
 // CreateScenario is the resolver for the createScenario field.
 func (r *mutationResolver) CreateScenario(ctx context.Context, input model.ScenarioInput) (*model.Scenario, error) {
-	return nil, notImplemented("createScenario")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	apply, err := r.applyScenarioInput(ctx, v, input)
+	if err != nil {
+		return nil, err
+	}
+	created, err := r.ScenarioUC.Create(ctx, scopeOf(v), v.UserID, apply)
+	if err != nil {
+		return nil, err
+	}
+	return mapScenario(created), nil
 }
 
 // UpdateScenario is the resolver for the updateScenario field.
 func (r *mutationResolver) UpdateScenario(ctx context.Context, lineageID uuid.UUID, input model.ScenarioInput) (*model.Scenario, error) {
-	return nil, notImplemented("updateScenario")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	apply, err := r.applyScenarioInput(ctx, v, input)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := r.ScenarioUC.Update(ctx, scopeOf(v), v.UserID, lineageID, apply)
+	if err != nil {
+		return nil, err
+	}
+	return mapScenario(updated), nil
 }
 
 // PublishScenario is the resolver for the publishScenario field.
 func (r *mutationResolver) PublishScenario(ctx context.Context, lineageID uuid.UUID, version int) (*model.Scenario, error) {
-	return nil, notImplemented("publishScenario")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	published, err := r.ScenarioUC.Publish(ctx, scopeOf(v), v.UserID, lineageID, version)
+	if err != nil {
+		return nil, err
+	}
+	return mapScenario(published), nil
 }
 
 // CreateRubric is the resolver for the createRubric field.
 func (r *mutationResolver) CreateRubric(ctx context.Context, input model.RubricInput) (*model.Rubric, error) {
-	return nil, notImplemented("createRubric")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	created, err := r.RubricUC.Create(ctx, scopeOf(v), v.UserID, applyRubricInput(input))
+	if err != nil {
+		return nil, err
+	}
+	return mapRubric(created), nil
 }
 
 // UpdateRubric is the resolver for the updateRubric field.
 func (r *mutationResolver) UpdateRubric(ctx context.Context, lineageID uuid.UUID, input model.RubricInput) (*model.Rubric, error) {
-	return nil, notImplemented("updateRubric")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := r.RubricUC.Update(ctx, scopeOf(v), v.UserID, lineageID, applyRubricInput(input))
+	if err != nil {
+		return nil, err
+	}
+	return mapRubric(updated), nil
 }
 
 // PublishRubric is the resolver for the publishRubric field.
 func (r *mutationResolver) PublishRubric(ctx context.Context, lineageID uuid.UUID, version int) (*model.Rubric, error) {
-	return nil, notImplemented("publishRubric")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	published, err := r.RubricUC.Publish(ctx, scopeOf(v), v.UserID, lineageID, version)
+	if err != nil {
+		return nil, err
+	}
+	return mapRubric(published), nil
 }
 
 // StartSession is the resolver for the startSession field.
@@ -176,22 +256,54 @@ func (r *mutationResolver) OverrideScore(ctx context.Context, input model.Overri
 
 // UpdateLLMProfile is the resolver for the updateLLMProfile field.
 func (r *mutationResolver) UpdateLLMProfile(ctx context.Context, lineageID uuid.UUID, input model.LLMProfileInput) (*model.LLMProfile, error) {
-	return nil, notImplemented("updateLLMProfile")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := r.LLMProfileUC.Update(ctx, scopeOf(v), v.UserID, lineageID, toProfileSettings(input))
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMProfile(updated), nil
 }
 
 // CreateLLMProfile is the resolver for the createLLMProfile field.
 func (r *mutationResolver) CreateLLMProfile(ctx context.Context, input model.LLMProfileInput) (*model.LLMProfile, error) {
-	return nil, notImplemented("createLLMProfile")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	created, err := r.LLMProfileUC.Create(ctx, scopeOf(v), v.UserID, toProfileSettings(input))
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMProfile(created), nil
 }
 
 // PublishLLMProfile is the resolver for the publishLLMProfile field.
 func (r *mutationResolver) PublishLLMProfile(ctx context.Context, lineageID uuid.UUID, version int) (*model.LLMProfile, error) {
-	return nil, notImplemented("publishLLMProfile")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	published, err := r.LLMProfileUC.Publish(ctx, scopeOf(v), v.UserID, lineageID, version)
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMProfile(published), nil
 }
 
 // TestLLMProfile is the resolver for the testLLMProfile field.
 func (r *mutationResolver) TestLLMProfile(ctx context.Context, input model.TestLLMProfileInput) (*model.LLMProbeResult, error) {
-	return nil, notImplemented("testLLMProfile")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	probe, err := r.LLMProfileUC.Probe(ctx, scopeOf(v), v.UserID, input.ProfileLineageID, input.Prompt)
+	if err != nil {
+		return nil, err
+	}
+	return mapProbeResult(probe), nil
 }
 
 // UpdateProfile is the resolver for the updateProfile field.
@@ -435,7 +547,19 @@ func (r *queryResolver) RoutingRecords(ctx context.Context, sessionID *uuid.UUID
 
 // AuditLog is the resolver for the auditLog field.
 func (r *queryResolver) AuditLog(ctx context.Context, limit *int, offset *int) ([]*model.AuditEntry, error) {
-	return nil, notImplemented("auditLog")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Denetim kaydı organizasyona göre filtreleniyor. Kullanıcıya göre
+	// filtrelemek yetmez: bir yönetici kendi organizasyonundaki tüm olayları
+	// görebilmeli, ama başka bir kiracınınkileri asla.
+	entries, _, err := r.AuditRepo.ListByOrg(ctx, v.OrgID,
+		intOrDefault(offset, 0), clampLimit(intOrDefault(limit, 50), 50, 200))
+	if err != nil {
+		return nil, err
+	}
+	return mapAuditEntries(entries), nil
 }
 
 // DeletionStatus is the resolver for the deletionStatus field.

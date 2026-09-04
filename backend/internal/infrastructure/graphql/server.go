@@ -300,6 +300,8 @@ func domainErrorCode(err *domainErr.DomainError) string {
 		return "CONFLICT"
 	case errors.Is(err, domainErr.ErrRateLimited):
 		return "RATE_LIMITED"
+	case errors.Is(err, domainErr.ErrNotImplemented):
+		return "NOT_IMPLEMENTED"
 	default:
 		return "INTERNAL"
 	}

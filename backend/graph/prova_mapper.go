@@ -1,9 +1,12 @@
 package graph
 
 import (
+	"context"
+
 	"github.com/masterfabric-go/masterfabric/graph/model"
 	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
 	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
+	"github.com/masterfabric-go/masterfabric/internal/shared/authctx"
 )
 
 func mapDocumentStatus(s provaModel.DocumentStatus) model.DocumentStatus {
@@ -381,4 +384,96 @@ func mapRoutingRecords(records []*provaModel.RoutingRecord) []*model.RoutingReco
 		out = append(out, item)
 	}
 	return out
+}
+
+// applyCharacterInput, şema girdisini belgeye uygular.
+func applyCharacterInput(in model.CharacterInput) func(*provaModel.Character) {
+	return func(c *provaModel.Character) {
+		c.Name = in.Name
+		c.Persona = in.Persona
+		c.BehaviorRules = in.BehaviorRules
+		c.Difficulty = toDifficulty(in.Difficulty)
+		c.HiddenFacts = in.HiddenFacts
+	}
+}
+
+func applyRubricInput(in model.RubricInput) func(*provaModel.Rubric) {
+	return func(r *provaModel.Rubric) {
+		r.Name = in.Name
+		r.Description = in.Description
+		r.PassThreshold = in.PassThreshold
+		r.Criteria = make([]provaModel.Criterion, 0, len(in.Criteria))
+		for _, c := range in.Criteria {
+			r.Criteria = append(r.Criteria, provaModel.Criterion{
+				Key:         c.Key,
+				Title:       c.Title,
+				Description: c.Description,
+				Weight:      c.Weight,
+				MaxPoints:   c.MaxPoints,
+				Mandatory:   c.Mandatory,
+				Trap:        derefString(c.Trap),
+			})
+		}
+	}
+}
+
+func toProfileSettings(in model.LLMProfileInput) provaUC.ProfileSettings {
+	return provaUC.ProfileSettings{
+		Tier:               toTier(in.Tier),
+		Provider:           in.Provider,
+		BaseURL:            in.BaseURL,
+		Model:              in.Model,
+		Temperature:        in.Temperature,
+		TopP:               in.TopP,
+		MaxTokens:          in.MaxTokens,
+		SystemPromptSuffix: derefString(in.SystemPromptSuffix),
+		InputCostPer1K:     in.InputCostPer1k,
+		OutputCostPer1K:    in.OutputCostPer1k,
+	}
+}
+
+func mapProbeResult(p *provaUC.ProbeResult) *model.LLMProbeResult {
+	if p == nil {
+		return nil
+	}
+	out := &model.LLMProbeResult{
+		ProfileID:    p.ProfileID,
+		Model:        p.Model,
+		Output:       p.Output,
+		LatencyMs:    p.LatencyMs,
+		InputTokens:  p.InputTokens,
+		OutputTokens: p.OutputTokens,
+		CostUsd:      p.CostUSD,
+	}
+	if p.Error != "" {
+		errText := p.Error
+		out.Error = &errText
+	}
+	return out
+}
+
+// applyScenarioInput, senaryo girdisini belgeye uygular.
+//
+// Karakter ve rubrik soy kimliğiyle veriliyor ama belgeye SÜRÜM referansı
+// yazılıyor: senaryo, o an yayınlanmış olan tam sürüme bağlanır. Soyu
+// saklamak, senaryonun neye karşı oynandığını sonraki bir yayınla sessizce
+// değiştirirdi.
+func (r *Resolver) applyScenarioInput(ctx context.Context, v *authctx.Viewer, in model.ScenarioInput) (func(*provaModel.Scenario), error) {
+	character, err := r.CharacterRepo.GetLatestPublished(ctx, scopeOf(v), in.CharacterLineageID)
+	if err != nil {
+		return nil, err
+	}
+	rubric, err := r.RubricRepo.GetLatestPublished(ctx, scopeOf(v), in.RubricLineageID)
+	if err != nil {
+		return nil, err
+	}
+
+	return func(s *provaModel.Scenario) {
+		s.Title = in.Title
+		s.Context = in.Context
+		s.Objective = in.Objective
+		s.CharacterRef = character.Ref()
+		s.RubricRef = rubric.Ref()
+		s.MaxTurns = in.MaxTurns
+	}, nil
 }

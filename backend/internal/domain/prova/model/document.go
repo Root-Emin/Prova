@@ -127,3 +127,15 @@ type Reference struct {
 func (d Document) Ref() Reference {
 	return Reference{LineageID: d.LineageID, VersionID: d.ID, Version: d.Version}
 }
+
+// Versioned, sürümlenebilir belgelerin ortak sözleşmesi.
+//
+// Generic depo ve generic içerik akışı bunun üzerinden çalışıyor: karakter,
+// senaryo, rubrik ve LLM profili aynı sürümleme kurallarına uyuyor, ve o
+// kuralları dört kez yazmak dördünün zamanla ayrışması demek.
+type Versioned interface {
+	// Envelope, sürüm zarfına erişim verir.
+	Envelope() *Document
+	// Validate, belgenin saklanabilir olduğunu bildirir.
+	Validate() error
+}

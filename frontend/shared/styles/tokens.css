@@ -40,6 +40,7 @@
   --color-line-strong: var(--line-strong);
   --color-tint: var(--tint);
   --color-ember: var(--ember);
+  --color-ember-ink: var(--ember-ink);
   --color-brand-hover: var(--brand-hover);
   --color-pass: var(--pass);
   --color-partial: var(--partial);
@@ -113,6 +114,12 @@
     var(--steel) 55%,
     var(--mist)
   ); /* #d2dade sakin yüzey — alıntı, bilgi bandı */
+  --ember-ink: color-mix(
+    in oklab,
+    var(--ember) 46%,
+    var(--slate)
+  ); /* #85634f — turuncunun metin varyantı. Ham turuncu açık zeminde
+        1.8:1 kalıyor; yüzeysiz rozetlerde bu ton kullanılır, 4.6:1. */
 
   /* Rubrik durumları. Dört renkte üç ayrı hue yok; ayrım dolgu ağırlığıyla
      yapılır: Geçti tam arduvaz dolgu, Kısmi turuncu dış çizgi + %20 dolgu,
@@ -226,7 +233,7 @@
     font-size: var(--metin-govde);
   }
 
-  /* Başlıklar serif ve marka yeşili. */
+  /* Başlıklar serif ve marka arduvazı. */
   h1,
   h2,
   h3,
