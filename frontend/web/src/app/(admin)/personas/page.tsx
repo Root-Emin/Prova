@@ -29,7 +29,7 @@ export default function PersonasPage() {
     initialScenarios
   )
   /** null iken kart galerisi, dolu iken o rengin ayar ekranı görünür. */
-  const [activeColor, setActiveColor] = React.useState<PersonaColor | null>("red")
+  const [activeColor, setActiveColor] = React.useState<PersonaColor | null>(null)
   const [selectedId, setSelectedId] = React.useState(initialScenarios[0].id)
   const [dirty, setDirty] = React.useState(false)
   const [lastRow, setLastRow] = React.useState<string | null>(null)
@@ -202,7 +202,7 @@ export default function PersonasPage() {
               {/* Renk kimliği editörün başında da durur. */}
               <span
                 className={cn(
-                  "flex h-[104px] w-[80px] shrink-0 items-start overflow-hidden rounded-md border border-border",
+                  "flex h-[100px] w-[84px] shrink-0 items-start overflow-hidden rounded-md border border-border pt-2",
                   renk.soft
                 )}
               >

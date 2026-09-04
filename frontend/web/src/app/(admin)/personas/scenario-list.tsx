@@ -20,7 +20,7 @@ export function ScenarioList({
   return (
     <nav
       aria-label="Senaryolar"
-      className="prova-kart sticky top-6 flex h-[520px] w-[240px] shrink-0 flex-col self-start"
+      className="prova-kart sticky top-6 flex max-h-[520px] w-[240px] shrink-0 flex-col self-start"
     >
       <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
         <span className="prova-meta uppercase">Senaryolar</span>

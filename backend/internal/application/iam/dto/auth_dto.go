@@ -74,6 +74,18 @@ type VerifyMagicLinkRequest struct {
 	DeviceSignature string      `json:"device_signature" validate:"omitempty,max=256"`
 }
 
+// DeviceChallengeRequest asks for a signature challenge.
+type DeviceChallengeRequest struct {
+	Email       string `json:"email" validate:"required,email"`
+	Fingerprint string `json:"fingerprint" validate:"required,min=16,max=128"`
+}
+
+// DeviceChallengeResponse carries the text the device must sign.
+type DeviceChallengeResponse struct {
+	Challenge string    `json:"challenge"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 // PairedDevice describes the device bound to the account during this sign-in.
 type PairedDevice struct {
 	ID       uuid.UUID `json:"id"`

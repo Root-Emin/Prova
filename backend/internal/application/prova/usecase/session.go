@@ -3,12 +3,14 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	appService "github.com/masterfabric-go/masterfabric/internal/application/prova/service"
 	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
+	iamRepo "github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	provaService "github.com/masterfabric-go/masterfabric/internal/domain/prova/service"
@@ -17,6 +19,9 @@ import (
 
 // SessionDeps, oturum akışlarının bağımlılıkları.
 type SessionDeps struct {
+	// Devices, oturumu başlatan cihazın hâlâ yetkili olduğunu doğrulamak
+	// için. Nil bırakılabilir; o zaman kontrol atlanır.
+	Devices    iamRepo.DeviceRepository
 	Sessions   provaRepo.SessionRepository
 	Scores     provaRepo.ScoreRepository
 	Scenarios  provaRepo.ScenarioRepository
@@ -76,6 +81,14 @@ func NewSessionUseCase(deps SessionDeps) *SessionUseCase {
 // sertifikasyon iddiasının dayandığı tek mekanizma: içerik yarın değişse bile
 // bu oturum kendi sürümüyle puanlanır.
 func (uc *SessionUseCase) Start(ctx context.Context, scope provaRepo.Scope, employeeID uuid.UUID, deviceID *uuid.UUID, scenarioLineage uuid.UUID) (*provaModel.Session, error) {
+	// İptal edilmiş cihazdan oturum başlatılamaz. Token denylist'i zaten
+	// iptali yakalar, ama o kontrol taşıma katmanında ve Redis'e bağlı;
+	// sertifika taşıyan bir sınavın cihaz kontrolü, önbelleğin çalışmasına
+	// bağlı bırakılamayacak kadar önemli.
+	if err := uc.ensureDeviceUsable(ctx, employeeID, deviceID); err != nil {
+		return nil, err
+	}
+
 	scenario, err := uc.Scenarios.GetLatestPublished(ctx, scope, scenarioLineage)
 	if err != nil {
 		return nil, err
@@ -119,6 +132,28 @@ func (uc *SessionUseCase) Start(ctx context.Context, scope provaRepo.Scope, empl
 	})
 
 	return session, nil
+}
+
+// ensureDeviceUsable, oturumu başlatan cihazın hâlâ yetkili olduğunu doğrular.
+func (uc *SessionUseCase) ensureDeviceUsable(ctx context.Context, employeeID uuid.UUID, deviceID *uuid.UUID) error {
+	if deviceID == nil || uc.Devices == nil {
+		// Web panelinin donanım kimliği yok; giriş yapar ama sertifika
+		// taşıyan bir sınav barındıramaz. Bu kontrol onu engellemez,
+		// engelleyen şey oturumun kendi kayıt kuralları.
+		return nil
+	}
+
+	device, err := uc.Devices.GetByID(ctx, employeeID, *deviceID)
+	if err != nil {
+		if errors.Is(err, domainErr.ErrNotFound) {
+			return domainErr.New(domainErr.ErrForbidden, "oturum başlatan cihaz tanınmıyor", nil)
+		}
+		return err
+	}
+	if device.IsRevoked() {
+		return domainErr.New(domainErr.ErrForbidden, "bu cihazın yetkisi iptal edilmiş", nil)
+	}
+	return nil
 }
 
 // SubmitTurn, çalışanın mesajını kaydeder ve karakterin yanıtını üretir.

@@ -51,7 +51,7 @@ export function PersonaGallery({
               {/* İllüstrasyonlar saydam zeminli; panel rengin açık tonudur. */}
               <span
                 className={cn(
-                  "flex h-[220px] shrink-0 items-start overflow-hidden border-b border-border pt-3",
+                  "flex h-[244px] shrink-0 items-start overflow-hidden border-b border-border pt-3",
                   renk.soft
                 )}
               >

@@ -50,6 +50,8 @@ type VerifyDeps struct {
 	Users       repository.UserRepository
 	Codes       repository.LoginCodeRepository
 	Devices     repository.DeviceRepository
+	Challenges  repository.DeviceChallengeRepository
+	Signatures  SignatureVerifier
 	CodeSvc     service.LoginCodeService
 	Auth        service.AuthService
 	Memberships service.MembershipResolver
@@ -132,7 +134,7 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 		return nil, domainErr.New(domainErr.ErrForbidden, "account is not active", nil)
 	}
 
-	return uc.CompleteLogin(ctx, user, req.Device, now, "code")
+	return uc.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, now, "code")
 }
 
 // CompleteLogin, kimliği kanıtlanmış bir kullanıcı için oturumu açar.
@@ -145,10 +147,11 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 	ctx context.Context,
 	user *model.User,
 	deviceInfo *dto.DeviceInfo,
+	deviceSignature string,
 	now time.Time,
 	method string,
 ) (*dto.VerifyLoginCodeResponse, error) {
-	paired, err := uc.pairDevice(ctx, user, deviceInfo, now)
+	paired, err := uc.pairDevice(ctx, user, deviceInfo, deviceSignature, now)
 	if err != nil {
 		return nil, err
 	}
@@ -162,10 +165,20 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 		return nil, err
 	}
 
+	// Cihaz kimliği token'a yazılıyor: cihaz iptal edildiğinde o cihaza ait
+	// token'lar denylist üzerinden anında reddedilebilsin diye. Token'da
+	// cihaz olmasaydı iptal, ancak token sona erdiğinde etkili olurdu.
+	var deviceID *uuid.UUID
+	if paired != nil {
+		id := paired.ID
+		deviceID = &id
+	}
+
 	token, err := uc.Auth.GenerateToken(ctx, service.TokenClaims{
 		UserID:         user.ID,
 		Email:          user.Email,
 		OrganizationID: orgID,
+		DeviceID:       deviceID,
 	})
 	if err != nil {
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to generate token", err)
@@ -298,16 +311,21 @@ func (uc *VerifyLoginCodeUseCase) resolveUser(ctx context.Context, email string,
 // Pairing happens at this exact moment by design: the mailbox has just been
 // proven, and the machine is present. Doing it later, as a separate opt-in
 // step, would leave sessions that no certificate can be traced back to.
-func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.User, info *dto.DeviceInfo, now time.Time) (*dto.PairedDevice, error) {
+func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.User, info *dto.DeviceInfo, signature string, now time.Time) (*dto.PairedDevice, error) {
 	if info == nil || info.Fingerprint == "" {
 		// The web panel has no hardware identity. It signs in fine; it just
 		// cannot host a certificate-bearing exam.
 		return nil, nil
 	}
 
+	if err := uc.verifyDeviceSignature(ctx, user, info, signature, now); err != nil {
+		return nil, err
+	}
+
 	device := &model.Device{
 		UserID:      user.ID,
 		Fingerprint: info.Fingerprint,
+		PublicKey:   info.PublicKey,
 		Name:        info.Name,
 		Platform:    model.NormalizePlatform(info.Platform),
 		LastSeenAt:  now,
@@ -318,7 +336,7 @@ func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.Us
 		return nil, err
 	}
 	if device.IsRevoked() {
-		return nil, domainErr.New(domainErr.ErrForbidden, "this device has been revoked", nil)
+		return nil, domainErr.New(domainErr.ErrForbidden, "bu cihazın yetkisi iptal edilmiş", nil)
 	}
 
 	if created {
@@ -331,6 +349,87 @@ func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.Us
 		Platform: string(device.Platform),
 		IsNew:    created,
 	}, nil
+}
+
+// verifyDeviceSignature, kayıtlı anahtarı olan cihazlardan imza ister.
+//
+// Kayıt anındaki cihazda doğrulanacak bir anahtar yoktur; ilk giriş
+// anahtarı KAYDEDER. Sonraki her girişte imza zorunludur: parmak izi
+// kopyalanabilir bir dizedir, imza değildir.
+//
+// Kayıtlı anahtarı olmayan eski cihazlar imza vermeden geçmeye devam eder.
+// Bunu zorunlu yapmak, sürüm yükseltmeden önce eşleşmiş her cihazı bir
+// gecede kilitlerdi; anahtar bir sonraki girişte sessizce kaydedilir.
+func (uc *VerifyLoginCodeUseCase) verifyDeviceSignature(ctx context.Context, user *model.User, info *dto.DeviceInfo, signature string, now time.Time) error {
+	if uc.Signatures == nil || uc.Challenges == nil {
+		return nil
+	}
+
+	existing, err := uc.Devices.GetByFingerprint(ctx, user.ID, info.Fingerprint)
+	switch {
+	case errors.Is(err, domainErr.ErrNotFound):
+		// İlk kayıt. Anahtar geldiyse kullanılabilir olduğu doğrulanır:
+		// geçersiz bir anahtarı kaydetmek, cihazı bir daha hiç
+		// doğrulanamaz hâle getirirdi.
+		if info.PublicKey != "" {
+			if err := uc.Signatures.ValidatePublicKey(info.PublicKey); err != nil {
+				return domainErr.New(domainErr.ErrValidation, "geçersiz cihaz açık anahtarı", err)
+			}
+		}
+		return nil
+	case err != nil:
+		return err
+	}
+
+	if existing.IsRevoked() {
+		return domainErr.New(domainErr.ErrForbidden, "bu cihazın yetkisi iptal edilmiş", nil)
+	}
+	if existing.PublicKey == "" {
+		// Anahtarsız eski kayıt; istemci anahtar gönderdiyse bu girişte
+		// kaydedilir (depo yalnızca boşken yazar).
+		return nil
+	}
+
+	if signature == "" {
+		return domainErr.New(domainErr.ErrUnauthorized, "cihaz imzası gerekiyor", nil)
+	}
+
+	challenge, err := uc.Challenges.GetLatestUsable(ctx, user.Email, model.HashFingerprint(info.Fingerprint), now)
+	if err != nil {
+		if errors.Is(err, domainErr.ErrNotFound) {
+			return domainErr.New(domainErr.ErrUnauthorized, "geçerli bir cihaz challenge'ı yok", nil)
+		}
+		return err
+	}
+
+	if err := uc.Signatures.Verify(existing.PublicKey, challenge.Challenge, signature); err != nil {
+		uc.Audit.Record(ctx, auditService.Entry{
+			Action:       auditService.ActionDeviceChallengeFailed,
+			ResourceType: "device",
+			ResourceID:   existing.ID.String(),
+		})
+		return domainErr.New(domainErr.ErrUnauthorized, "cihaz imzası doğrulanamadı", err)
+	}
+
+	// Challenge imza doğrulandıktan SONRA yakılıyor: önce yakılsaydı,
+	// doğrulama hatası veren meşru bir istemci yeni challenge almak için
+	// baştan başlamak zorunda kalırdı ve tekrar denemesi imkânsızlaşırdı.
+	consumed, err := uc.Challenges.Consume(ctx, challenge.ID, now)
+	if err != nil {
+		return err
+	}
+	if !consumed {
+		// Yarışı kaybettik: aynı challenge başka bir istek tarafından
+		// yakılmış. Tek kullanımlık olması tam da bunu engellemek içindi.
+		return domainErr.New(domainErr.ErrUnauthorized, "cihaz challenge'ı zaten kullanılmış", nil)
+	}
+
+	uc.Audit.Record(ctx, auditService.Entry{
+		Action:       auditService.ActionDeviceChallengeVerified,
+		ResourceType: "device",
+		ResourceID:   existing.ID.String(),
+	})
+	return nil
 }
 
 // notifyNewDevice mails the account owner that a machine was paired.

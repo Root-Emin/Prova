@@ -33,6 +33,7 @@ type Resolver struct {
 	ManageDevicesUC    *iamUC.ManageDevicesUseCase
 	LogoutUC           *iamUC.LogoutUseCase
 	VerifyMagicLinkUC  *iamUC.VerifyMagicLinkUseCase
+	DeviceChallengeUC  *iamUC.RequestDeviceChallengeUseCase
 	Users              iamRepo.UserRepository
 	RBAC               iamService.RBACService
 

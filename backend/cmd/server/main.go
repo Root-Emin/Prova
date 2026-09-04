@@ -233,6 +233,8 @@ func buildDependencies(
 
 	denylist := infraAuth.NewDenylist(redisClient)
 	magicLinkRepo := pgIam.NewMagicLinkRepo(db)
+	deviceChallengeRepo := pgIam.NewDeviceChallengeRepo(db)
+	deviceSignatures := infraAuth.NewDeviceSignatureService()
 	magicLinkTokens := infraAuth.NewMagicLinkService()
 	magicLinkIssuer := iamUC.NewMagicLinkIssuer(
 		magicLinkRepo, userRepo, magicLinkTokens, cfg.Token.MagicLinkTTL, log)
@@ -254,6 +256,8 @@ func buildDependencies(
 		Users:       userRepo,
 		Codes:       loginCodeRepo,
 		Devices:     deviceRepo,
+		Challenges:  deviceChallengeRepo,
+		Signatures:  deviceSignatures,
 		CodeSvc:     loginCodeService,
 		Auth:        jwtService,
 		Memberships: memberships,
@@ -269,6 +273,8 @@ func buildDependencies(
 	verifyMagicLinkUC := iamUC.NewVerifyMagicLinkUseCase(
 		magicLinkRepo, userRepo, magicLinkTokens, verifyCodeUC,
 		auditRecorder, cfg.Auth.SelfSignup, log)
+	deviceChallengeUC := iamUC.NewRequestDeviceChallengeUseCase(
+		deviceChallengeRepo, deviceSignatures, auditRecorder, cfg.Token.DeviceChallengeTTL, log)
 	manageDevicesUC := iamUC.NewManageDevicesUseCase(deviceRepo, denylist, auditRecorder, log)
 	logoutUC := iamUC.NewLogoutUseCase(denylist, auditRecorder, cfg.Token.AccessTTL, log)
 
@@ -322,6 +328,7 @@ func buildDependencies(
 		rubricUC = provaUC.NewContentUseCase[provaModel.Rubric](rubRepo, auditRecorder, "rubric")
 		llmProfileUC = provaUC.NewLLMProfileUseCase(profileRepo, gateway, auditRecorder)
 		sessionUC = provaUC.NewSessionUseCase(provaUC.SessionDeps{
+			Devices:    deviceRepo,
 			Sessions:   sessionRepo,
 			Scores:     scoreRepo,
 			Scenarios:  scenRepo,
@@ -344,6 +351,7 @@ func buildDependencies(
 		ManageDevicesUC:    manageDevicesUC,
 		LogoutUC:           logoutUC,
 		VerifyMagicLinkUC:  verifyMagicLinkUC,
+		DeviceChallengeUC:  deviceChallengeUC,
 		Users:              userRepo,
 		RBAC:               rbacService,
 		AuditRepo:          auditRepo,

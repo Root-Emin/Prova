@@ -61,7 +61,14 @@ func (r *mutationResolver) VerifyMagicLink(ctx context.Context, input model.Veri
 
 // RequestDeviceChallenge is the resolver for the requestDeviceChallenge field.
 func (r *mutationResolver) RequestDeviceChallenge(ctx context.Context, input model.DeviceChallengeInput) (*model.DeviceChallenge, error) {
-	return nil, notImplemented("requestDeviceChallenge")
+	result, err := r.DeviceChallengeUC.Execute(ctx, iamDTO.DeviceChallengeRequest{
+		Email:       input.Email,
+		Fingerprint: input.Fingerprint,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model.DeviceChallenge{Challenge: result.Challenge, ExpiresAt: result.ExpiresAt}, nil
 }
 
 // RefreshToken is the resolver for the refreshToken field.
