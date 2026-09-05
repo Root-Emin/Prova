@@ -44,10 +44,18 @@ func (c *Config) Validate() error {
 				"AUTH_CODE_PEPPER boş; giriş kodu digest'leri 10^6'lık uzayda pepper olmadan "+
 					"düz metne eşdeğerdir (openssl rand -base64 32)"))
 		}
+		if strings.TrimSpace(c.EmailVerification.Pepper) == "" {
+			problems = append(problems, errors.New(
+				"EMAIL_VERIFICATION_OTP_PEPPER boş; e-posta doğrulama digest'leri pepper olmadan güvenli değildir (openssl rand -base64 32)"))
+		}
 		if strings.TrimSpace(c.Mongo.URI) == "" || c.Mongo.URI == DefaultMongoURI {
 			problems = append(problems, errors.New(
 				"MONGO_URI boş ya da localhost varsayılanında; oturum ve puanlama belgeleri "+
 					"nesne veritabanında tutulur, yerel varsayılanla üretime çıkmak veri kaybıdır"))
+		}
+		provider := strings.ToLower(strings.TrimSpace(c.Email.Provider))
+		if provider == ProviderResend && strings.TrimSpace(c.Email.Resend.APIKey) == "" {
+			problems = append(problems, errors.New("RESEND_API_KEY boş; Resend teslimi yapılamaz"))
 		}
 		if strings.EqualFold(strings.TrimSpace(c.Email.Provider), ProviderNone) {
 			problems = append(problems, errors.New(
@@ -55,7 +63,7 @@ func (c *Config) Validate() error {
 					"sisteme giremez ama sunucu çalışıyor görünür"))
 		}
 		if strings.TrimSpace(c.Email.FromAddress) == "" {
-			problems = append(problems, errors.New("EMAIL_FROM_ADDRESS boş; gönderen adresi olmadan teslim yapılamaz"))
+			problems = append(problems, errors.New("RESEND_FROM_EMAIL boş; gönderen adresi olmadan teslim yapılamaz"))
 		}
 		if c.Lifecycle.DeletionGracePeriod < minProductionGracePeriod {
 			problems = append(problems, fmt.Errorf(
@@ -69,8 +77,17 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Auth.CodeLength < 4 || c.Auth.CodeLength > 10 {
-		problems = append(problems, fmt.Errorf("AUTH_CODE_LENGTH %d aralık dışında (4-10)", c.Auth.CodeLength))
+	if c.Auth.CodeLength != 6 {
+		problems = append(problems, fmt.Errorf("AUTH_CODE_LENGTH %d geçersiz; giriş kodu tam 6 haneli olmalı", c.Auth.CodeLength))
+	}
+	if c.EmailVerification.OTPTTL != 5*time.Minute {
+		problems = append(problems, fmt.Errorf("EMAIL_VERIFICATION_OTP_TTL_SECONDS %d geçersiz; doğrulama kodu tam 300 saniye geçerli olmalı", int(c.EmailVerification.OTPTTL.Seconds())))
+	}
+	if c.EmailVerification.MaxAttempts != 5 {
+		problems = append(problems, fmt.Errorf("EMAIL_VERIFICATION_MAX_ATTEMPTS %d geçersiz; doğrulama kodu tam 5 denemeyle sınırlı olmalı", c.EmailVerification.MaxAttempts))
+	}
+	if c.EmailVerification.ResendCooldown != time.Minute {
+		problems = append(problems, fmt.Errorf("EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS %d geçersiz; yeniden gönderim aralığı tam 60 saniye olmalı", int(c.EmailVerification.ResendCooldown.Seconds())))
 	}
 	if c.GraphQL.MaxDepth < 1 {
 		problems = append(problems, errors.New("GRAPHQL_MAX_DEPTH en az 1 olmalı"))

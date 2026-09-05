@@ -11,8 +11,8 @@
 //
 // Kontrol uçları:
 //
-//	POST /_control/fail?model=gpt-4o-mini   → o model için çağrılar hata döndürür
-//	POST /_control/heal?model=gpt-4o-mini   → hata modunu kapatır
+//	POST /_control/fail?model=Qwen/Qwen3-4B-Instruct-2507   → o model için çağrılar hata döndürür
+//	POST /_control/heal?model=Qwen/Qwen3-4B-Instruct-2507   → hata modunu kapatır
 //	GET  /_control/stats                    → model başına çağrı sayısı
 package main
 
@@ -264,7 +264,7 @@ func promptSize(req chatRequest) int {
 
 func (s *state) models(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o-mini"},{"id":"gpt-4o"}]}`))
+	_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"Qwen/Qwen3-4B-Instruct-2507"},{"id":"Qwen/Qwen3-30B-A3B-Instruct-2507"}]}`))
 }
 
 func (s *state) setBroken(broken bool) http.HandlerFunc {

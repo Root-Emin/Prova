@@ -56,53 +56,64 @@ export function RubricEditor({
         </span>
       </div>
 
-      <ul className="mt-3 divide-y divide-border border-y border-border">
-        {criteria.map((criterion) => (
-          <li key={criterion.id} className="flex items-center gap-3 py-2">
-            <span className="prova-meta w-[64px] shrink-0 uppercase">
-              {criterion.code}
-            </span>
+      {criteria.length === 0 ? (
+        <p className="prova-meta mt-3 normal-case">
+          Henüz kriter yok. Görüşmenin neye göre puanlanacağını kriter ekleyerek
+          yazın; ağırlıkların toplamı 100 olmalı.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border border-y border-border">
+          {criteria.map((criterion) => (
+            <li key={criterion.id} className="flex items-center gap-3 py-2">
+              <span className="prova-meta w-[64px] shrink-0 uppercase">
+                {criterion.code}
+              </span>
 
-            <Input
-              value={criterion.name}
-              onChange={(event) => onChange(criterion.id, { name: event.target.value })}
-              aria-label={`${criterion.code} kriter adı`}
-              className="flex-1"
-            />
-
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={criterion.weight}
-              onChange={(event) =>
-                onChange(criterion.id, { weight: Number(event.target.value) || 0 })
-              }
-              aria-label={`${criterion.code} ağırlığı`}
-              className="w-[72px] shrink-0"
-            />
-
-            <label className="flex w-[76px] shrink-0 items-center gap-2">
-              <Switch
-                checked={criterion.mandatory}
-                onCheckedChange={(value) =>
-                  onChange(criterion.id, { mandatory: value })
+              <Input
+                value={criterion.name}
+                onChange={(event) =>
+                  onChange(criterion.id, { name: event.target.value })
                 }
+                aria-label={`${criterion.code} kriter adı`}
+                className="flex-1"
               />
-              <span className="prova-meta normal-case">zorunlu</span>
-            </label>
 
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`${criterion.code} kriterini sil`}
-              onClick={() => onSil(criterion.id)}
-            >
-              <Trash2 className="size-4" aria-hidden />
-            </Button>
-          </li>
-        ))}
-      </ul>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={criterion.weight}
+                onChange={(event) =>
+                  onChange(criterion.id, {
+                    weight: Number(event.target.value) || 0,
+                  })
+                }
+                aria-label={`${criterion.code} ağırlığı`}
+                className="w-[72px] shrink-0"
+              />
+
+              <label className="flex w-[76px] shrink-0 items-center gap-2">
+                <Switch
+                  checked={criterion.mandatory}
+                  onCheckedChange={(value) =>
+                    onChange(criterion.id, { mandatory: value })
+                  }
+                />
+                <span className="prova-meta normal-case">zorunlu</span>
+              </label>
+
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`${criterion.code} kriterini sil`}
+                onClick={() => onSil(criterion.id)}
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

@@ -1,0 +1,115 @@
+{
+  "version": "1.0.0",
+  "language": "tr",
+  "task": "rubric_criterion_multi_label_classification",
+  "source": [
+    "backend/internal/domain/prova/model/rubric.go",
+    "backend/cmd/seed/content.go"
+  ],
+  "polarity_definition": {
+    "labels": "Kriteri destekleyen olumlu çalışan davranışı.",
+    "negative_labels": "Kriterdeki ihlal, eksiklik veya olumsuz çalışan davranışı."
+  },
+  "label2id": {
+    "pii_disclosure": 0,
+    "identity_verification": 1,
+    "greeting": 2,
+    "active_listening": 3,
+    "procedure_accuracy": 4,
+    "empathy": 5,
+    "solution_offer": 6,
+    "closing": 7
+  },
+  "id2label": {
+    "0": "pii_disclosure",
+    "1": "identity_verification",
+    "2": "greeting",
+    "3": "active_listening",
+    "4": "procedure_accuracy",
+    "5": "empathy",
+    "6": "solution_offer",
+    "7": "closing"
+  },
+  "labels": [
+    {
+      "key": "pii_disclosure",
+      "title": "Kişisel veri koruması",
+      "description": "Doğrulanmamış bir kişiye başkasının kişisel verisini açıklamama; gerektiğinde paylaşımı reddedip güvenli süreci anlatma.",
+      "positive_behavior": "Yetki veya kimlik doğrulaması olmadan bilgi paylaşmaz, talebi güvenli kanala yönlendirir.",
+      "negative_behavior": "Kişisel veriyi doğrulamadan açıklar, teyit eder veya üçüncü kişiye aktarır.",
+      "mandatory": true,
+      "weight": 2.0,
+      "max_points": 5
+    },
+    {
+      "key": "identity_verification",
+      "title": "Kimlik doğrulaması",
+      "description": "Bilgi veya işlem paylaşmadan önce arayanın kimliğini kurum prosedürüne göre doğrulama.",
+      "positive_behavior": "Gerekli doğrulama adımlarını ister ve doğrulama tamamlanmadan işleme geçmez.",
+      "negative_behavior": "Kimlik doğrulamayı atlar, yetersiz bilgiyle kişiyi doğrulanmış kabul eder.",
+      "mandatory": true,
+      "weight": 1.5,
+      "max_points": 5
+    },
+    {
+      "key": "greeting",
+      "title": "Karşılama ve kimlik tanıtımı",
+      "description": "Görüşmeyi uygun bir selamlama ve çalışan/kurum tanıtımıyla açma.",
+      "positive_behavior": "Kendini ve kurumu tanıtır, görüşmeye uygun biçimde hoş geldiniz der.",
+      "negative_behavior": "Görüşmeye tanıtmadan veya kaba, kopuk bir girişle başlar.",
+      "mandatory": false,
+      "weight": 1.0,
+      "max_points": 5
+    },
+    {
+      "key": "active_listening",
+      "title": "Etkin dinleme",
+      "description": "Talebi kendi cümleleriyle özetleyerek doğru anladığını gösterme.",
+      "positive_behavior": "Karşı tarafın talebini veya kaygısını doğru biçimde geri yansıtır ve gerekirse netleştirici soru sorar.",
+      "negative_behavior": "Talebi dinlemeden varsayım yapar, sözü keser veya söyleneni yanlış tekrarlar.",
+      "mandatory": false,
+      "weight": 1.0,
+      "max_points": 5
+    },
+    {
+      "key": "procedure_accuracy",
+      "title": "Prosedür doğruluğu",
+      "description": "Senaryoda verilen geçerli prosedürü eksiksiz ve doğru anlatma.",
+      "positive_behavior": "Uygulanabilir süreci, koşulları ve sınırları çarpıtmadan açıklar.",
+      "negative_behavior": "Prosedürü yanlış, eksik veya senaryoda olmayan bir kuralla anlatır.",
+      "mandatory": false,
+      "weight": 1.5,
+      "max_points": 5
+    },
+    {
+      "key": "empathy",
+      "title": "Empati ve ton",
+      "description": "Karşı taraf zorlanmış veya sinirli olsa bile sakin, saygılı ve bağlama uygun kalma.",
+      "positive_behavior": "Duyguyu küçümsemeden kabul eder, sakin ve saygılı bir dil kullanır.",
+      "negative_behavior": "Suçlayıcı, küçümseyici, savunmacı veya duyguya kayıtsız bir ton kullanır.",
+      "mandatory": false,
+      "weight": 1.0,
+      "max_points": 5
+    },
+    {
+      "key": "solution_offer",
+      "title": "Çözüm önerisi",
+      "description": "Somut ve uygulanabilir bir sonraki adım önerme.",
+      "positive_behavior": "Kimin ne zaman ne yapacağını belirten gerçekçi bir seçenek veya sonraki adım sunar.",
+      "negative_behavior": "Hiçbir yol önermez, belirsiz biçimde geçiştirir veya uygulanamayacak taahhütte bulunur.",
+      "mandatory": false,
+      "weight": 1.0,
+      "max_points": 5
+    },
+    {
+      "key": "closing",
+      "title": "Kapanış",
+      "description": "Görüşmeyi özeti ve ek ihtiyaç sorusuyla uygun biçimde kapatma.",
+      "positive_behavior": "Yapılanları kısaca özetler, ek ihtiyacı sorar ve uygun bir kapanış yapar.",
+      "negative_behavior": "Görüşmeyi aniden bitirir, sonraki adımı teyit etmez veya ek ihtiyacı sormaz.",
+      "mandatory": false,
+      "weight": 0.5,
+      "max_points": 5
+    }
+  ]
+}

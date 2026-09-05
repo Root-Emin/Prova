@@ -46,6 +46,10 @@ export function ScoreOverrideDialog({
   const [status, setStatus] = React.useState<RubricStatus>(currentStatus)
   const [reason, setReason] = React.useState("")
 
+  React.useEffect(() => {
+    if (open) setStatus(currentStatus)
+  }, [currentStatus, open])
+
   function submit(event: React.FormEvent) {
     event.preventDefault()
     onOverride(status, reason.trim())
@@ -57,7 +61,7 @@ export function ScoreOverrideDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>
         <Scale aria-hidden />
-        Puanı applyOverride
+        Puanı değiştir
       </DialogTrigger>
       <DialogContent className="sm:max-w-[460px]">
         <form onSubmit={submit}>

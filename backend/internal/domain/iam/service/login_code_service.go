@@ -1,5 +1,7 @@
 package service
 
+import "github.com/google/uuid"
+
 // LoginCodeService mints and checks the one-time codes used for passwordless
 // sign-in.
 //
@@ -14,4 +16,14 @@ type LoginCodeService interface {
 	// in time independent of how many leading digits are correct, or the
 	// comparison itself leaks the code one digit at a time.
 	Matches(digest, code string) bool
+}
+
+// AccountBoundLoginCodeService is the hardened form used by the running
+// application. The digest input includes the immutable account ID and the
+// normalized current e-mail, so a code can never be replayed for another
+// account or after an e-mail change.
+type AccountBoundLoginCodeService interface {
+	LoginCodeService
+	GenerateFor(userID uuid.UUID, normalizedEmail string) (code string, digest string, err error)
+	MatchesFor(userID uuid.UUID, normalizedEmail, digest, code string) bool
 }

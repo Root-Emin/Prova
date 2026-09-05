@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils"
+import { ProvaLogo } from "@/components/prova/logo"
 import {
   Card,
   CardContent,
@@ -42,11 +43,8 @@ function FormShell({
     >
       <div className="w-[420px] max-w-[420px]">
         {/* Drag handle for the frameless window in Electron. */}
-        <div className="prova-drag mb-6 text-center">
-          <span className="font-heading text-2xl tracking-tight text-primary">
-            Prova
-          </span>
-          <p className="prova-meta mt-1 uppercase">Yetkinlik sertifikasyonu</p>
+        <div className="prova-drag mb-6 flex justify-center">
+          <ProvaLogo size="lg" stacked tagline="Yetkinlik sertifikasyonu" />
         </div>
 
         {aside ? <div className="mb-4">{aside}</div> : null}

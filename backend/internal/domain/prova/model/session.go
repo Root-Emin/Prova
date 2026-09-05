@@ -72,6 +72,9 @@ type Turn struct {
 	ID        uuid.UUID `bson:"_id" json:"id"`
 	OrgID     uuid.UUID `bson:"org_id" json:"org_id"`
 	SessionID uuid.UUID `bson:"session_id" json:"session_id"`
+	// RequestID, bir SubmitTurn denemesini iki kez uygulamayı önleyen
+	// istemci-idempotency anahtarıdır. Eski turn'lerde boş kalabilir.
+	RequestID *uuid.UUID `bson:"request_id,omitempty" json:"-"`
 	// Index, oturum içindeki sıra numarası. Puanlama modeli alıntıyı bu
 	// numarayla işaretler ve alıntı doğrulaması bu numaradaki metinde arar.
 	Index int      `bson:"index" json:"index"`

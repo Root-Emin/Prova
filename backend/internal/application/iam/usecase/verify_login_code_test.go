@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
-	iamEvent "github.com/masterfabric-go/masterfabric/internal/domain/iam/event"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
@@ -45,6 +44,12 @@ func newVerifyFixture(t *testing.T, cfg config.AuthConfig, users *fakeUserRepo) 
 		auth:    &fakeAuthService{},
 		members: &fakeMembershipResolver{orgID: uuid.New()},
 		clock:   time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC),
+	}
+	for _, user := range users.byID {
+		if user.EmailVerifiedAt == nil {
+			verifiedAt := f.clock.Add(-time.Hour)
+			user.EmailVerifiedAt = &verifiedAt
+		}
 	}
 	f.uc = NewVerifyLoginCodeUseCase(VerifyDeps{
 		Users:       f.users,
@@ -97,19 +102,20 @@ func TestVerifyLoginCode_IssuesTokenForCorrectCode(t *testing.T) {
 	assert.Nil(t, resp.Device, "no fingerprint was sent, so nothing may be paired")
 }
 
-// Redeeming the code proves the mailbox. That fact is recorded once.
-func TestVerifyLoginCode_MarksEmailVerified(t *testing.T) {
+// A login code authenticates only. It must never turn an unverified account
+// into a verified one.
+func TestVerifyLoginCode_DoesNotMarkEmailVerified(t *testing.T) {
 	cfg := testAuthConfig()
 	user := &model.User{Email: "user@corp.com", Status: model.UserStatusActive}
 	f := newVerifyFixture(t, cfg, newFakeUserRepo(user))
+	user.EmailVerifiedAt = nil
 	f.seedCode("user@corp.com", cfg)
 
 	_, err := f.uc.Execute(context.Background(),
 		dto.VerifyLoginCodeRequest{Email: "user@corp.com", Code: "123456"}, "")
 
-	require.NoError(t, err)
-	require.NotNil(t, user.EmailVerifiedAt)
-	assert.Equal(t, f.clock, *user.EmailVerifiedAt)
+	assert.ErrorIs(t, err, domainErr.ErrUnauthorized)
+	assert.Nil(t, user.EmailVerifiedAt)
 }
 
 // The code is single-use. Two requests carrying the same correct code must not
@@ -259,26 +265,21 @@ func TestVerifyLoginCode_PadsRejectionToFloor(t *testing.T) {
 	assert.Equal(t, cfg.MinResponseTime, f.slept)
 }
 
-// Self-signup provisions the account here, not at request time: codes that are
-// never redeemed must leave no account behind.
-func TestVerifyLoginCode_ProvisionsAccountOnFirstRedemption(t *testing.T) {
+func TestVerifyLoginCode_DoesNotProvisionAccount(t *testing.T) {
 	cfg := testAuthConfig()
 	f := newVerifyFixture(t, cfg, newFakeUserRepo())
 	f.seedCode("newcomer@corp.com", cfg)
 
-	resp, err := f.uc.Execute(context.Background(),
+	_, err := f.uc.Execute(context.Background(),
 		dto.VerifyLoginCodeRequest{Email: "newcomer@corp.com", Code: "123456"}, "")
 
-	require.NoError(t, err)
-	assert.Equal(t, 1, f.users.created)
-	assert.Equal(t, "newcomer@corp.com", resp.User.Email)
-	require.Len(t, f.bus.events, 1)
-	assert.IsType(t, iamEvent.UserRegistered{}, f.bus.events[0])
+	assert.ErrorIs(t, err, domainErr.ErrUnauthorized)
+	assert.Equal(t, 0, f.users.created)
+	assert.Empty(t, f.bus.events)
 }
 
-func TestVerifyLoginCode_RefusesUnknownAddressWithoutSelfSignup(t *testing.T) {
+func TestVerifyLoginCode_RefusesUnknownAddress(t *testing.T) {
 	cfg := testAuthConfig()
-	cfg.SelfSignup = false
 	f := newVerifyFixture(t, cfg, newFakeUserRepo())
 	f.seedCode("newcomer@corp.com", cfg)
 

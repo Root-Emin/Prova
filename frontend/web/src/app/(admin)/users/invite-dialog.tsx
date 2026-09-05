@@ -24,42 +24,97 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { userRoleLabel, type User } from "./mock"
+import { graphqlRequest } from "@/lib/graphql"
 
-const invitableRoles: User["role"][] = [
-  "employee",
-  "trainer",
-  "org-admin",
-]
+import { userRoleLabel, type UserRole } from "./mock"
+import { useUsers } from "./users-store"
+
+/** Çalışan masaüstünde sınava girer, kurum yöneticisi bu paneli kullanır. */
+const invitableRoles: UserRole[] = ["employee", "org-admin"]
 
 const roleOptions = Object.fromEntries(
   invitableRoles.map((role) => [role, userRoleLabel[role]])
 )
 
 export function InviteDialog({
-  onInvite,
+  departmentId,
+  lockDepartment = false,
 }: {
-  onInvite: (user: { name: string; email: string; role: User["role"] }) => void
+  departmentId: string
+  lockDepartment?: boolean
 }) {
-  const [open, setOpen] = React.useState(false)
-  const [name, setAd] = React.useState("")
-  const [email, setEmail] = React.useState("")
-  const [role, setRole] = React.useState<User["role"]>("employee")
+  const { departments, addUsers } = useUsers()
 
-  function submit(event: React.FormEvent) {
+  const [open, setOpen] = React.useState(false)
+  const [name, setName] = React.useState("")
+  const [email, setEmail] = React.useState("")
+  const [role, setRole] = React.useState<UserRole>("employee")
+  const [target, setTarget] = React.useState(departmentId)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const departmentOptions = React.useMemo(
+    () =>
+      Object.fromEntries(
+        departments.map((department) => [department.id, department.name])
+      ),
+    [departments]
+  )
+
+  function openChange(next: boolean) {
+    setOpen(next)
+    if (next) setTarget(departmentId)
+  }
+
+  async function submit(event: React.FormEvent) {
     event.preventDefault()
-    onInvite({ name, email, role })
-    toast.success("Davet gönderildi", {
-      description: `${email} adresine doğrulama bağlantısı iletildi.`,
-    })
-    setAd("")
-    setEmail("")
-    setRole("employee")
-    setOpen(false)
+    const address = email.trim().toLocaleLowerCase("en-US")
+    const nameParts = name.trim().split(/\s+/)
+    const firstName = nameParts.shift() ?? ""
+    const lastName = nameParts.join(" ")
+
+    setIsSubmitting(true)
+    try {
+      const data = await graphqlRequest<{
+        register: {
+          registered: boolean
+          email: string
+          resendAfterSeconds: number
+        }
+      }>(
+        `mutation Register($input: RegisterInput!) {
+          register(input: $input) {
+            registered
+            email
+            resendAfterSeconds
+          }
+        }`,
+        { input: { email: address, firstName, lastName } },
+      )
+
+      addUsers(
+        [{ email: data.register.email, name: name.trim(), role }],
+        target,
+        "invite",
+      )
+      toast.success("Davet gönderildi", {
+        description: `${data.register.email} adresine doğrulama kodu gönderildi.`,
+      })
+      setName("")
+      setEmail("")
+      setRole("employee")
+      setOpen(false)
+    } catch (error) {
+      toast.error("Davet gönderilemedi", {
+        description:
+          error instanceof Error ? error.message : "Bir hata oluştu.",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={openChange}>
       <DialogTrigger render={<Button size="lg" />}>
         <UserPlus aria-hidden />
         Davet et
@@ -69,7 +124,8 @@ export function InviteDialog({
           <DialogHeader>
             <DialogTitle>Kullanıcı davet et</DialogTitle>
             <DialogDescription>
-              Davet edilen kişi e-postasını doğrulayana kadar oturum açamaz.
+              Davet edilen kişi masaüstü uygulamasından kendi adresiyle giriş
+              yapana kadar sınava giremez.
             </DialogDescription>
           </DialogHeader>
 
@@ -79,7 +135,7 @@ export function InviteDialog({
               <Input
                 id="davet-ad"
                 value={name}
-                onChange={(event) => setAd(event.target.value)}
+                onChange={(event) => setName(event.target.value)}
                 placeholder="Ad Soyad"
                 required
               />
@@ -95,12 +151,33 @@ export function InviteDialog({
                 required
               />
             </div>
+            {!lockDepartment && (
+              <div className="space-y-2">
+                <Label>Departman</Label>
+                <Select
+                  items={departmentOptions}
+                  value={target}
+                  onValueChange={(value) => setTarget(value as string)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((department) => (
+                      <SelectItem key={department.id} value={department.id}>
+                        {department.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Rol</Label>
               <Select
                 items={roleOptions}
                 value={role}
-                onValueChange={(value) => setRole(value as User["role"])}
+                onValueChange={(value) => setRole(value as UserRole)}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -120,7 +197,9 @@ export function InviteDialog({
             <DialogClose render={<Button variant="outline" type="button" />}>
               Vazgeç
             </DialogClose>
-            <Button type="submit">Daveti gönder</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Gönderiliyor…" : "Daveti gönder"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -13,24 +13,24 @@ import (
 type LoginCodePurpose string
 
 const (
-	// LoginCodePurposeLogin covers both first sign-in (which verifies the
-	// address) and every later sign-in. The flow is passwordless, so these are
-	// the same operation.
+	// LoginCodePurposeLogin authenticates an already registered, verified
+	// account. It never changes e-mail verification state.
 	LoginCodePurposeLogin LoginCodePurpose = "login"
 )
 
 // LoginCode is a one-time numeric code issued to an e-mail address.
 //
-// The row is keyed by address rather than by user id: a code is requested
-// before we know — or admit to knowing — whether an account exists, and keeping
-// the two apart is what makes the request path give identical answers for
-// registered and unregistered addresses.
+// The public request is keyed by address to preserve an enumeration-safe API;
+// hardened records also carry the immutable account identity.
 //
 // The code itself is never stored. Only CodeDigest is, and it is a peppered
 // digest: the code space is 10^6, so an unpeppered digest column is a rainbow
 // table away from plaintext.
 type LoginCode struct {
-	ID          uuid.UUID        `json:"id"`
+	ID uuid.UUID `json:"id"`
+	// UserID is the immutable account identity used by the hardened digest and
+	// by the Redis key. It is populated before a challenge is issued.
+	UserID      uuid.UUID        `json:"user_id"`
 	Email       string           `json:"email"`
 	CodeDigest  string           `json:"-"`
 	Purpose     LoginCodePurpose `json:"purpose"`

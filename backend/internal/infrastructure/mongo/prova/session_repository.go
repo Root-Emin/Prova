@@ -173,6 +173,52 @@ func (r *SessionRepo) AppendTurn(ctx context.Context, scope repository.Scope, tu
 	return nil
 }
 
+// FindTurnByRequestID returns one turn belonging to an idempotent request.
+func (r *SessionRepo) FindTurnByRequestID(ctx context.Context, scope repository.Scope, sessionID, requestID uuid.UUID, role model.TurnRole) (*model.Turn, error) {
+	condition, err := scopedFilter(scope, bson.M{
+		"session_id": sessionID,
+		"request_id": requestID,
+		"role":       role,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var turn model.Turn
+	if err := r.turns.FindOne(ctx, condition).Decode(&turn); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, domainErr.New(domainErr.ErrNotFound, "konuşma sırası bulunamadı", nil)
+		}
+		return nil, domainErr.New(domainErr.ErrInternal, "konuşma sırası okunamadı", err)
+	}
+	return &turn, nil
+}
+
+// DeleteTurn removes a just-created turn and restores the session counter.
+// It is the compensating half of the employee/persona pair when the second
+// persistence operation fails on a Mongo deployment without transactions.
+func (r *SessionRepo) DeleteTurn(ctx context.Context, scope repository.Scope, sessionID, turnID uuid.UUID) error {
+	condition, err := scopedFilter(scope, bson.M{"_id": turnID, "session_id": sessionID})
+	if err != nil {
+		return err
+	}
+	result, err := r.turns.DeleteOne(ctx, condition)
+	if err != nil {
+		return domainErr.New(domainErr.ErrInternal, "konuşma sırası geri alınamadı", err)
+	}
+	if result.DeletedCount == 0 {
+		return domainErr.New(domainErr.ErrNotFound, "geri alınacak konuşma sırası bulunamadı", nil)
+	}
+	if _, err := r.sessions.UpdateOne(ctx, bson.M{
+		"_id":        sessionID,
+		"org_id":     scope.OrgID(),
+		"status":     model.SessionStatusActive,
+		"turn_count": bson.M{"$gt": 0},
+	}, bson.M{"$inc": bson.M{"turn_count": -1}}); err != nil {
+		return domainErr.New(domainErr.ErrInternal, "oturum sırası sayacı geri alınamadı", err)
+	}
+	return nil
+}
+
 func (r *SessionRepo) explainAppendFailure(ctx context.Context, scope repository.Scope, sessionID uuid.UUID) error {
 	session, err := r.GetByID(ctx, scope, sessionID)
 	if err != nil {

@@ -10,15 +10,6 @@ export type Device = {
 
 export const devices: Device[] = [
   {
-    id: "c-8801",
-    user: "Ayşe Demirtaş",
-    email: "ayse.demirtas@akbank-egitim.tr",
-    deviceName: "AYSE-MBP-14",
-    os: "macOS 15.4",
-    registeredAt: "03.03.2026",
-    lastSeen: "03.09.2026 09:41",
-  },
-  {
     id: "c-8802",
     user: "Gizem Aydoğan",
     email: "gizem.aydogan@akbank-egitim.tr",
@@ -44,14 +35,5 @@ export const devices: Device[] = [
     os: "macOS 15.3",
     registeredAt: "14.02.2026",
     lastSeen: "03.09.2026 08:12",
-  },
-  {
-    id: "c-8805",
-    user: "Ayşe Demirtaş",
-    email: "ayse.demirtas@akbank-egitim.tr",
-    deviceName: "AYSE-EV-PC",
-    os: "Ubuntu 24.04",
-    registeredAt: "22.07.2026",
-    lastSeen: "18.08.2026 21:03",
   },
 ]

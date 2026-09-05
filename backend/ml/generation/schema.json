@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prova.local/ml/turkish-rubric-dataset.schema.json",
+  "title": "Prova Türkçe multi-label rubric dataset record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "scenario",
+    "context",
+    "utterance",
+    "labels",
+    "negative_labels",
+    "evidence_spans",
+    "quality",
+    "example_type",
+    "split"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^tr_[0-9]{6}$" },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["industry", "scenario_type", "persona", "difficulty"],
+      "properties": {
+        "industry": { "type": "string", "minLength": 1 },
+        "scenario_type": { "type": "string", "minLength": 1 },
+        "persona": { "type": "string", "minLength": 1 },
+        "difficulty": { "enum": ["kolay", "orta", "zor"] }
+      }
+    },
+    "context": { "type": "string", "minLength": 1 },
+    "utterance": { "type": "string", "minLength": 1 },
+    "labels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "negative_labels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "evidence_spans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "text"],
+        "properties": {
+          "label": { "type": "string" },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ambiguity", "naturalness", "hard_negative", "context_dependent"],
+      "properties": {
+        "ambiguity": { "enum": ["düşük", "orta", "yüksek"] },
+        "naturalness": { "enum": ["yüksek", "orta"] },
+        "hard_negative": { "type": "boolean" },
+        "context_dependent": { "type": "boolean" }
+      }
+    },
+    "example_type": {
+      "enum": ["positive", "negative", "mixed", "neutral", "ambiguous", "hard_negative", "multi_label"]
+    },
+    "contrastive_group": { "type": "string" },
+    "split": { "enum": ["train", "validation", "test"] },
+    "focus_label": { "type": "string" },
+    "template_family": { "type": "string" }
+  }
+}

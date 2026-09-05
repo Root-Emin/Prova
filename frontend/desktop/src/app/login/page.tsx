@@ -1,71 +1,100 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import Link from "next/link"
-import { Laptop } from "lucide-react"
+import * as React from "react";
+import { useRouter } from "next/navigation";
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { FormShell } from "@/components/prova/form-shell"
-import { useDeviceState } from "@/hooks/use-device-state"
-import { loginInfo } from "./mock"
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { FormShell } from "@/components/prova/form-shell";
+import { setPendingLogin } from "@/lib/auth-flow";
+import { authErrorMessage } from "@/lib/auth-errors";
 
-/** Parolasız hat: adres girilir, altı haneli kod bu adrese gider. */
 function emailLooksValid(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
 export default function LoginPage() {
-  const device = useDeviceState()
-  const [email, setEmail] = React.useState("")
+  const router = useRouter();
+  const [email, setEmail] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const validEmail = emailLooksValid(email);
 
-  const ok = emailLooksValid(email)
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!emailLooksValid(normalizedEmail)) {
+      setError("Geçerli bir e-posta girin");
+      return;
+    }
+    const api = window.prova;
+    if (!api) {
+      setError("Masaüstü bağlantısı hazır değil; uygulamayı yeniden açın");
+      return;
+    }
+
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const response = await api.auth.requestLoginCode(normalizedEmail);
+      setPendingLogin(normalizedEmail, response);
+      router.push("/verify");
+    } catch (requestError) {
+      setError(
+        authErrorMessage(
+          requestError,
+          "Kod gönderilemedi. Lütfen tekrar deneyin.",
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <FormShell
       title="Giriş yap"
-      description="Parola yok; kurumsal e-postanıza tek kullanımlık kod gönderilir."
-      action={
+      description="Hesabınıza giriş yapmak için e-posta adresinizi yazın."
+    >
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        <div className="space-y-2">
+          <Label htmlFor="login-email">E-posta adresi</Label>
+          <Input
+            id="login-email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoFocus
+            value={email}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="ad.soyad@kurum.tr"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-email-error" : undefined}
+          />
+          {error ? (
+            <p
+              id="login-email-error"
+              className="text-sm text-destructive"
+              role="alert"
+            >
+              {error}
+            </p>
+          ) : null}
+        </div>
+
         <Button
-          nativeButton={ok ? false : undefined}
+          type="submit"
           className="w-full"
           size="lg"
-          disabled={!ok}
-          render={ok ? <Link href="/verify" /> : undefined}
+          disabled={!validEmail || isSubmitting}
         >
-          Kod gönder
+          {isSubmitting ? "Gönderiliyor…" : "Kod gönder"}
         </Button>
-      }
-      footer="Hesabınız yoksa ilk girişte kurumsal adresinizle oluşturulur."
-    >
-      <div className="space-y-2">
-        <Label htmlFor="login-email">Kurumsal e-posta</Label>
-        <Input
-          id="login-email"
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          autoFocus
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="ad.soyad@kurum.tr"
-        />
-      </div>
-
-      <div className="flex items-start gap-3 rounded-lg border border-border bg-muted px-4 py-3">
-        <Laptop size={20} className="mt-0.5 shrink-0 text-primary" aria-hidden />
-        <div>
-          <p className="text-sm leading-relaxed text-foreground">
-            Giriş tamamlandığı anda bu cihaz hesabınıza bağlanır. Sınav
-            yalnızca kayıtlı cihazdan verilebilir.
-          </p>
-          <p className="prova-meta mt-1 normal-case">
-            {device.deviceName ?? "Bilinmeyen cihaz"} · {device.os} · parmak izi{" "}
-            <span className="font-mono">{loginInfo.fingerprint}</span>
-          </p>
-        </div>
-      </div>
+      </form>
     </FormShell>
-  )
+  );
 }

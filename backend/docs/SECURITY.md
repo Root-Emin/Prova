@@ -17,7 +17,9 @@ durduğunu gösterir. Uygulanmayan şeyler en sonda, açıkça listelenmiştir.
 | **Sayaç yarışı** (eşzamanlı denemeler sayacı aynı değerde okur) | Artırma ve kilitleme tek SQL ifadesinde | `user_repository.go` |
 | **Adres başına kod bombardımanı** | Adres ve IP başına hız limiti + yeniden gönderim cooldown'ı | `request_login_code.go` |
 | **Aynı anda birden fazla geçerli kod** | Yeni kod üretilince eskiler yakılır | `codes.InvalidateActive` |
-| **Digest kolonunun sızması** | Kod digest'i sunucu tarafı pepper ile HMAC'lenir; 10^6'lık uzay pepper olmadan düz metne eşdeğerdir | `login_code_service.go`, `AUTH_CODE_PEPPER` |
+| **Kod özeti sızması** | OTP özeti sunucu tarafı pepper ile HMAC'lenir ve immutable user ID + normalize mevcut e-posta ile bağlanır; giriş ve doğrulama ayrı pepper/config kullanır | `login_code_service.go`, `AUTH_CODE_PEPPER`, `EMAIL_VERIFICATION_OTP_PEPPER` |
+| **Doğrulama OTP'sinin kalıcı depoya sızması** | Aktif doğrulama challenge'ı yalnız Redis'te, kullanıcı-ID anahtarında ve 5 dakikalık TTL ile tutulur; PostgreSQL adaptörü yoktur | `redis/iam/email_verification_repository.go` |
+| **Giriş kodunun e-posta doğrulamasına çevrilmesi** | `verifyLoginCode` sadece oturum açar; `VerifyEmail` yalnız `email_verified_at` yazar ve token servisine bağımlı değildir | `verify_login_code.go`, `email_verification.go` |
 | **Magic link token'ının sızması** | DB'de yalnız SHA-256 özeti; token 256 bit rastgele | `magic_link_service.go` |
 | **Magic link'in yeniden oynatılması** | Tek kullanımlık; yakma koşulu `UPDATE … WHERE used_at IS NULL` sorgusunun içinde | `magic_link_repository.go` (`Consume`) |
 | **Eski bağlantıların birikmesi** | Yeni bağlantı üretilince adresin kullanılmamış bağlantıları iptal edilir | `magic_link.go` (`Issue`) |
@@ -63,6 +65,7 @@ durduğunu gösterir. Uygulanmayan şeyler en sonda, açıkça listelenmiştir.
 | **Batch ile limitlerin operasyon başına dağıtılması** | Batch limiti; gövde dizi ise sayılır ve reddedilir | `graphql/server.go` (`batchGuard`) |
 | **Şemanın haritasının çıkarılması** | Üretimde introspection ve playground zorla kapalı | `config/validate.go` (`Harden`) |
 | **Yetkisiz alan okuma** | `@permission` RBAC'a sorar; nullable alanda null, değilse hata | `graphql/directives.go` |
+| **Çalışanın sınav sonucunu okuması** | `Session.score` yalnızca `score:read` yetkisi olan yönetici sorgularında çözülür; çalışan için null döner | `schema.graphqls`, `seed/main.go` |
 | **Yetki servisi yokken açık kalma** | RBAC bağlı değilse kapalı taraf seçilir | `directives.go` |
 | **Başkasının transkriptini okuma** | Oturum sahipliği kontrolü; yönetici için ayrı `session:read:all` izni | `schema.resolvers.go`, `session.go` |
 | **Abonelikten başkasının oturumunu dinleme** | Sahiplik bağlantı anında doğrulanır | `schema.resolvers.go` (`SessionEvents`) |

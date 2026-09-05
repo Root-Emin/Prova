@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -122,11 +121,8 @@ export default function SessionPage() {
             </div>
 
             {session.finished ? (
-              <div className="flex items-center justify-between rounded-lg border border-line-strong bg-card px-4 py-3">
-                <p className="text-sm text-foreground">
-                  Görüşme tamamlandı. Değerlendirme güçlü modele iletildi.
-                </p>
-                <Button nativeButton={false} render={<Link href="/result" />}>Sonucu gör</Button>
+              <div className="rounded-lg border border-line-strong bg-card px-4 py-3">
+                <p className="text-sm text-foreground">Görüşme tamamlandı.</p>
               </div>
             ) : (
               <PushToTalk

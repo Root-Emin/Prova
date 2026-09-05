@@ -4,15 +4,19 @@ import { Progress as ProgressPrimitive } from "@base-ui/react/progress"
 
 import { cn } from "@/lib/utils"
 
+/* Yüzde metni Intl ile üretilir; yerel ayar verilmezse sunucu "31%",
+   tarayıcı "%31" yazar ve hidrasyon uyuşmazlığı çıkar. Arayüz tek dildir. */
 function Progress({
   className,
   children,
   value,
+  locale = "tr-TR",
   ...props
 }: ProgressPrimitive.Root.Props) {
   return (
     <ProgressPrimitive.Root
       value={value}
+      locale={locale}
       data-slot="progress"
       className={cn("flex flex-wrap gap-3", className)}
       {...props}

@@ -31,19 +31,24 @@ func TestLoginCode_SubjectOmitsTheCode(t *testing.T) {
 	assert.Equal(t, subjectLoginCode, msg.Subject, "the subject must be a constant, for sender reputation")
 }
 
-// Links and images are the two elements that most reliably push a transactional
-// message into spam — and a code in spam breaks the only door into the product.
-// Magic link istendiğinde tek bir bağlantı bilerek eklenir; bağlantısız
-// çağrıda ileti eskisi gibi tamamen bağlantısız kalmalıdır.
+// Without a magic link the message must stay free of external http(s) URLs and
+// of <a> tags. The embedded Prova mark (data:image/png) is the sole intentional
+// image — no tracking pixels, no CDN.
 func TestLoginCode_CarriesNoLinksOrImagesWithoutMagicLink(t *testing.T) {
 	msg := LoginCode(model.Address{Email: "user@corp.com"}, "482913", 10*time.Minute, "")
 
-	for _, body := range []string{msg.HTMLBody, msg.TextBody} {
-		assert.NotContains(t, body, "<a ")
-		assert.NotContains(t, body, "<img")
-		assert.NotContains(t, body, "http://")
-		assert.NotContains(t, body, "https://")
-	}
+	assert.NotContains(t, msg.HTMLBody, "<a ")
+	assert.NotContains(t, msg.TextBody, "<a ")
+	assert.NotContains(t, msg.HTMLBody, "http://")
+	assert.NotContains(t, msg.HTMLBody, "https://")
+	assert.NotContains(t, msg.TextBody, "http://")
+	assert.NotContains(t, msg.TextBody, "https://")
+
+	assert.Contains(t, msg.HTMLBody, "data:image/png")
+	assert.Contains(t, msg.HTMLBody, `alt="Prova"`)
+	assert.Contains(t, msg.HTMLBody, "<img")
+	assert.Contains(t, msg.HTMLBody, "Prova")
+	assert.Contains(t, msg.HTMLBody, brandTagline)
 }
 
 func TestLoginCode_ShortTTLStillReadsAsAtLeastOneMinute(t *testing.T) {
@@ -62,6 +67,7 @@ func TestNewDevice_DescribesTheMachineAndTime(t *testing.T) {
 	assert.Contains(t, msg.TextBody, "Şube PC")
 	assert.Contains(t, msg.TextBody, "03.09.2026 14:30 UTC")
 	assert.Contains(t, msg.HTMLBody, "03.09.2026 14:30 UTC")
+	assert.Contains(t, msg.HTMLBody, "data:image/png")
 }
 
 func TestNewDevice_FallsBackWhenNameIsMissing(t *testing.T) {
@@ -107,6 +113,9 @@ func TestLoginCode_CarriesBothCodeAndMagicLink(t *testing.T) {
 	}
 	if !strings.Contains(msg.HTMLBody, "482913") || !strings.Contains(msg.HTMLBody, link) {
 		t.Fatalf("HTML gövdesi hem kodu hem bağlantıyı içermeli")
+	}
+	if strings.Count(msg.HTMLBody, "<a ") != 1 {
+		t.Fatalf("magic link varken tek bir <a> olmalı, got %d", strings.Count(msg.HTMLBody, "<a "))
 	}
 }
 

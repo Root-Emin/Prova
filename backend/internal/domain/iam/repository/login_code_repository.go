@@ -49,3 +49,12 @@ type LoginCodeRepository interface {
 	// kişisel veridir.
 	DeleteByEmail(ctx context.Context, email string) error
 }
+
+// AtomicLoginCodeRepository provides the compare-and-consume primitive needed
+// to prevent two concurrent requests from redeeming the same correct code.
+// Older adapters may implement only LoginCodeRepository during migration, but
+// production adapters should always implement this interface.
+type AtomicLoginCodeRepository interface {
+	LoginCodeRepository
+	MarkConsumedIfActive(ctx context.Context, id uuid.UUID, at time.Time) (bool, error)
+}

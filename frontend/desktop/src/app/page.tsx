@@ -1,10 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { Award, CalendarClock, ChevronRight, Play, RefreshCw } from "lucide-react"
+import { CalendarClock, Play, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { RubricStatusInline } from "@/components/prova/rubric-status"
 import { TopBar } from "@/components/top-bar"
 import { useDeviceState } from "@/hooks/use-device-state"
 import { assignedSessions, pastSessions } from "./mock"
@@ -66,6 +65,10 @@ export default function MySessionsPage() {
 
           <section className="mt-8 space-y-3">
             <h2 className="text-sm font-medium">Geçmiş oturumların</h2>
+            <p className="prova-meta normal-case">
+              Puan ve değerlendirme yalnızca kurum yöneticisinin Oturumlar ekranında
+              görüntülenir.
+            </p>
 
             <ul className="divide-y divide-border rounded-lg border border-border bg-card">
               {pastSessions.map((session) => (
@@ -76,29 +79,10 @@ export default function MySessionsPage() {
                   <div className="min-w-0">
                     <p className="text-sm">{session.scenario}</p>
                     <p className="prova-meta normal-case">
-                      {session.date} · sürüm {session.version} · {session.score} puan
-                      {session.certificateNo ? (
-                        <>
-                          {" · "}
-                          <Award size={16} className="inline align-text-bottom" aria-hidden />{" "}
-                          {session.certificateNo}
-                        </>
-                      ) : null}
+                      {session.date} · sürüm {session.version}
                     </p>
                   </div>
-
-                  <div className="flex shrink-0 items-center gap-4">
-                    <RubricStatusInline status={session.result} />
-                    <Button
-                      nativeButton={false}
-                      variant="ghost"
-                      size="sm"
-                      render={<Link href="/result" />}
-                    >
-                      Sonucu gör
-                      <ChevronRight aria-hidden />
-                    </Button>
-                  </div>
+                  <span className="prova-meta shrink-0 normal-case">Tamamlandı</span>
                 </li>
               ))}
             </ul>

@@ -21,6 +21,45 @@ import (
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
 
+// Register is the resolver for the register field.
+func (r *mutationResolver) Register(ctx context.Context, input model.RegisterInput) (*model.RegisterPayload, error) {
+	result, err := r.RegisterUC.Execute(ctx, iamDTO.RegisterRequest{
+		Email: input.Email, FirstName: input.FirstName, LastName: input.LastName,
+	}, clientIP(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return &model.RegisterPayload{
+		Registered: result.Registered, Email: result.Email,
+		ExpiresInSeconds:   result.ExpiresInSeconds,
+		ResendAfterSeconds: result.ResendAfterSeconds,
+	}, nil
+}
+
+// RequestEmailVerificationCode is the resolver for the requestEmailVerificationCode field.
+func (r *mutationResolver) RequestEmailVerificationCode(ctx context.Context, input model.RequestEmailVerificationCodeInput) (*model.RequestEmailVerificationCodePayload, error) {
+	result, err := r.RequestEmailVerificationUC.Execute(ctx,
+		iamDTO.RequestEmailVerificationCodeRequest{Email: input.Email}, clientIP(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return &model.RequestEmailVerificationCodePayload{
+		Sent: result.Sent, ExpiresInSeconds: result.ExpiresInSeconds,
+		ResendAfterSeconds: result.ResendAfterSeconds,
+	}, nil
+}
+
+// VerifyEmail is the resolver for the verifyEmail field.
+func (r *mutationResolver) VerifyEmail(ctx context.Context, input model.VerifyEmailInput) (*model.VerifyEmailPayload, error) {
+	result, err := r.VerifyEmailUC.Execute(ctx, iamDTO.VerifyEmailRequest{
+		Email: input.Email, Code: input.Code,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model.VerifyEmailPayload{Verified: result.Verified, VerifiedAt: result.VerifiedAt}, nil
+}
+
 // RequestLoginCode is the resolver for the requestLoginCode field.
 func (r *mutationResolver) RequestLoginCode(ctx context.Context, input model.RequestLoginCodeInput) (*model.RequestLoginCodePayload, error) {
 	result, err := r.RequestLoginCodeUC.Execute(ctx,
@@ -251,7 +290,11 @@ func (r *mutationResolver) SubmitTurn(ctx context.Context, input model.SubmitTur
 	if err != nil {
 		return nil, err
 	}
-	turn, err := r.SessionUC.SubmitTurn(ctx, scopeOf(v), v.UserID, input.SessionID, input.Text)
+	requestID := uuid.Nil
+	if input.RequestID != nil {
+		requestID = *input.RequestID
+	}
+	turn, err := r.SessionUC.SubmitTurn(ctx, scopeOf(v), v.UserID, input.SessionID, requestID, input.Text)
 	if err != nil {
 		return nil, err
 	}
@@ -403,13 +446,6 @@ func (r *mutationResolver) ExportMyData(ctx context.Context) (*model.DataExport,
 
 	return export, nil
 }
-
-// Dışa aktarma sınırları. Sınırsız bir dışa aktarma, tek bir istekle
-// koleksiyonun tamamını belleğe çeker.
-const (
-	exportAuditLimit   = 1000
-	exportSessionLimit = 500
-)
 
 // RequestAccountDeletion is the resolver for the requestAccountDeletion field.
 func (r *mutationResolver) RequestAccountDeletion(ctx context.Context) (*model.DeletionStatus, error) {

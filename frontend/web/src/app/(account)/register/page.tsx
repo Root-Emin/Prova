@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormShell } from "@/components/prova/form-shell"
 import { PrivacyNotice } from "@/components/prova/privacy-notice"
+import { accountFlowStorage, graphqlRequest } from "@/lib/graphql"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -18,8 +19,10 @@ export default function RegisterPage() {
     name?: string
     email?: string
   }>({})
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const next: { name?: string; email?: string } = {}
     const trimmedName = name.trim()
@@ -38,7 +41,40 @@ export default function RegisterPage() {
     }
 
     setErrors({})
-    router.push("/verify")
+    setSubmitError(null)
+    setIsSubmitting(true)
+    const nameParts = trimmedName.split(/\s+/)
+    const firstName = nameParts.shift() ?? ""
+    const lastName = nameParts.join(" ")
+    try {
+      const data = await graphqlRequest<{
+        register: { email: string; resendAfterSeconds: number }
+      }>(
+        `mutation Register($input: RegisterInput!) {
+        register(input: $input) { email resendAfterSeconds }
+      }`,
+        { input: { email: trimmedEmail, firstName, lastName } },
+      )
+      window.sessionStorage.setItem(
+        accountFlowStorage.email,
+        data.register.email,
+      )
+      window.sessionStorage.setItem(
+        accountFlowStorage.mode,
+        "email-verification",
+      )
+      window.sessionStorage.setItem(
+        accountFlowStorage.resendAfter,
+        String(data.register.resendAfterSeconds),
+      )
+      router.push("/verify")
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Kayıt tamamlanamadı",
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -49,7 +85,10 @@ export default function RegisterPage() {
       footer={
         <>
           Hesabınız var mı?{" "}
-          <Link href="/login" className="text-primary underline underline-offset-4">
+          <Link
+            href="/login"
+            className="text-primary underline underline-offset-4"
+          >
             Giriş yapın
           </Link>
         </>
@@ -67,7 +106,9 @@ export default function RegisterPage() {
             value={name}
             onChange={(event) => {
               setAd(event.target.value)
-              if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }))
+              setSubmitError(null)
+              if (errors.name)
+                setErrors((prev) => ({ ...prev, name: undefined }))
             }}
             placeholder="Ad Soyad"
             aria-invalid={errors.name ? true : undefined}
@@ -91,6 +132,7 @@ export default function RegisterPage() {
             value={email}
             onChange={(event) => {
               setEmail(event.target.value)
+              setSubmitError(null)
               if (errors.email)
                 setErrors((prev) => ({ ...prev, email: undefined }))
             }}
@@ -104,9 +146,19 @@ export default function RegisterPage() {
             </p>
           ) : null}
         </div>
+        {submitError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {submitError}
+          </p>
+        ) : null}
         <div className="pt-1">
-          <Button type="submit" className="w-full" size="lg">
-            Doğrulama kodu gönder
+          <Button
+            type="submit"
+            className="w-full"
+            size="lg"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Gönderiliyor…" : "Doğrulama kodu gönder"}
           </Button>
         </div>
       </form>

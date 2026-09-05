@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -30,6 +31,22 @@ func TestLoad_EnvironmentOverrides(t *testing.T) {
 	cfg := Load()
 	assert.Equal(t, 9090, cfg.Server.Port)
 	assert.Equal(t, "db.example.com", cfg.Database.Host)
+}
+
+func TestLoad_ResendVerificationSettings(t *testing.T) {
+	t.Setenv("RESEND_API_KEY", "test-key")
+	t.Setenv("RESEND_FROM_EMAIL", "Prova <onboarding@resend.dev>")
+	t.Setenv("EMAIL_VERIFICATION_OTP_PEPPER", "verification-pepper")
+
+	cfg := Load()
+
+	assert.Equal(t, "test-key", cfg.Email.Resend.APIKey)
+	assert.Equal(t, "Prova <onboarding@resend.dev>", cfg.Email.FromAddress)
+	assert.Equal(t, "verification-pepper", cfg.EmailVerification.Pepper)
+	assert.Equal(t, "verification-pepper", cfg.Auth.CodePepper, "legacy login config keeps the compatibility fallback")
+	assert.Equal(t, 5*time.Minute, cfg.EmailVerification.OTPTTL)
+	assert.Equal(t, 5, cfg.EmailVerification.MaxAttempts)
+	assert.Equal(t, time.Minute, cfg.EmailVerification.ResendCooldown)
 }
 
 func TestLoad_DBPoolInt32Bounds(t *testing.T) {

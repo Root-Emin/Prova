@@ -10,6 +10,11 @@ import (
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
 
+const (
+	exportAuditLimit   = 1000
+	exportSessionLimit = 500
+)
+
 // viewer, bağlamdaki doğrulanmış çağıranı döndürür.
 //
 // @auth directive'i zaten kapıyı tutuyor; buradaki kontrol ikinci savunma

@@ -230,6 +230,30 @@ type RefreshTokenInput struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+type RegisterInput struct {
+	Email     string `json:"email"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
+type RegisterPayload struct {
+	Registered         bool   `json:"registered"`
+	Email              string `json:"email"`
+	ExpiresInSeconds   int    `json:"expiresInSeconds"`
+	ResendAfterSeconds int    `json:"resendAfterSeconds"`
+}
+
+type RequestEmailVerificationCodeInput struct {
+	Email string `json:"email"`
+}
+
+type RequestEmailVerificationCodePayload struct {
+	// İstek kabul edildi; hesap varlığı veya doğrulama durumu hakkında sinyal taşımaz.
+	Sent               bool `json:"sent"`
+	ExpiresInSeconds   int  `json:"expiresInSeconds"`
+	ResendAfterSeconds int  `json:"resendAfterSeconds"`
+}
+
 type RequestLoginCodeInput struct {
 	Email string `json:"email"`
 }
@@ -332,8 +356,8 @@ type Score struct {
 	Criteria            []*CriterionScore `json:"criteria"`
 	// Puanı üreten model kimliği.
 	Model string `json:"model"`
-	// Skor ezme kaydı. Yetkisiz kullanıcıda null döner: çalışan puanını görür,
-	// ezilip ezilmediğini görmez.
+	// Skor ezme kaydı. Yetkisiz kullanıcıda null döner; çalışan sonuçları
+	// göremediği için bu alan yalnızca yetkili yönetici sorgularında anlamlıdır.
 	Override  *ScoreOverride `json:"override,omitempty"`
 	CreatedAt time.Time      `json:"createdAt"`
 }
@@ -356,9 +380,10 @@ type Session struct {
 	Rubric    *DocumentRef `json:"rubric"`
 	Character *DocumentRef `json:"character"`
 	Turns     []*Turn      `json:"turns"`
-	Score     *Score       `json:"score,omitempty"`
-	StartedAt time.Time    `json:"startedAt"`
-	EndedAt   *time.Time   `json:"endedAt,omitempty"`
+	// Sonuç yalnızca puan okuma yetkisi olan kurum yöneticilerine açılır.
+	Score     *Score     `json:"score,omitempty"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
 
 // Oturum olayları için tek kanal.
@@ -377,7 +402,7 @@ type SessionEvent struct {
 	Signals []string `json:"signals,omitempty"`
 	// SCORING_PROGRESS için 0-100 arası ilerleme.
 	Progress *int `json:"progress,omitempty"`
-	// SCORE_READY için tamamlanmış puan.
+	// SCORE_READY için tamamlanmış puan; yalnızca sonuç okuma yetkisi olan yöneticilere iletilir.
 	Score      *Score    `json:"score,omitempty"`
 	OccurredAt time.Time `json:"occurredAt"`
 }
@@ -388,7 +413,9 @@ type StartSessionInput struct {
 
 type SubmitTurnInput struct {
 	SessionID uuid.UUID `json:"sessionId"`
-	Text      string    `json:"text"`
+	// Network retry'larında aynı turn'ü iki kez uygulamamak için istemci anahtarı.
+	RequestID *uuid.UUID `json:"requestId,omitempty"`
+	Text      string     `json:"text"`
 }
 
 type Subscription struct {
@@ -441,6 +468,16 @@ type User struct {
 	// Kalıcı silmenin planlandığı an.
 	DeletionScheduledAt *time.Time `json:"deletionScheduledAt,omitempty"`
 	CreatedAt           time.Time  `json:"createdAt"`
+}
+
+type VerifyEmailInput struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+type VerifyEmailPayload struct {
+	Verified   bool      `json:"verified"`
+	VerifiedAt time.Time `json:"verifiedAt"`
 }
 
 type VerifyLoginCodeInput struct {

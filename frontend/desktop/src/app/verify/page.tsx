@@ -1,52 +1,120 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import Link from "next/link"
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
-} from "@/components/ui/input-otp"
-import { FormShell } from "@/components/prova/form-shell"
-import { useDeviceState } from "@/hooks/use-device-state"
-import { verificationInfo } from "./mock"
+} from "@/components/ui/input-otp";
+import { FormShell } from "@/components/prova/form-shell";
+import {
+  clearPendingLogin,
+  getPendingLogin,
+  setPendingLogin,
+} from "@/lib/auth-flow";
+import { authErrorMessage } from "@/lib/auth-errors";
+
+const codeLength = 6;
 
 export default function VerifyPage() {
-  const device = useDeviceState()
-  const [code, setCode] = React.useState("")
-  const [remainingSeconds, setRemainingSeconds] = React.useState(
-    verificationInfo.resendSeconds
-  )
+  const router = useRouter();
+  const [email, setEmail] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [remainingSeconds, setRemainingSeconds] = React.useState(0);
+  const [error, setError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isResending, setIsResending] = React.useState(false);
 
   React.useEffect(() => {
-    if (remainingSeconds <= 0) return
-    const ticker = window.setInterval(() => {
-      setRemainingSeconds((prev) => prev - 1)
-    }, 1000)
-    return () => window.clearInterval(ticker)
-  }, [remainingSeconds])
+    const pending = getPendingLogin();
+    if (!pending) {
+      setError("E-posta bilgisi bulunamadı. Lütfen işlemi baştan başlatın.");
+      return;
+    }
+    setEmail(pending.email);
+    setRemainingSeconds(pending.resendAfterSeconds);
+  }, []);
 
-  const ok = code.length === verificationInfo.codeLength
-  // Cihaz eşleştirme girişin tamamlandığı anda olur; kayıtsız cihaz önce
-  // kayıt ekranına uğrar.
-  const nextHref = device.registered ? "/" : "/device-enrollment"
+  React.useEffect(() => {
+    if (remainingSeconds <= 0) return;
+    const ticker = window.setInterval(() => {
+      setRemainingSeconds((prev) => prev - 1);
+    }, 1000);
+    return () => window.clearInterval(ticker);
+  }, [remainingSeconds]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!email) {
+      setError("E-posta bilgisi bulunamadı. Lütfen işlemi baştan başlatın.");
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      setError("6 haneli kodu girin");
+      return;
+    }
+    const api = window.prova;
+    if (!api) {
+      setError("Masaüstü bağlantısı hazır değil; uygulamayı yeniden açın");
+      return;
+    }
+
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await api.auth.verifyLoginCode(email, code);
+      clearPendingLogin();
+      router.push("/");
+    } catch (verifyError) {
+      setError(
+        authErrorMessage(
+          verifyError,
+          "Kod doğrulanamadı. Lütfen tekrar deneyin.",
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResend() {
+    if (!email || isResending || remainingSeconds > 0) return;
+    const api = window.prova;
+    if (!api) {
+      setError("Masaüstü bağlantısı hazır değil; uygulamayı yeniden açın");
+      return;
+    }
+
+    setError(null);
+    setIsResending(true);
+    try {
+      const response = await api.auth.requestLoginCode(email);
+      setPendingLogin(email, response);
+      setRemainingSeconds(response.resendAfterSeconds);
+      setCode("");
+    } catch (resendError) {
+      setError(
+        authErrorMessage(
+          resendError,
+          "Kod gönderilemedi. Lütfen tekrar deneyin.",
+        ),
+      );
+    } finally {
+      setIsResending(false);
+    }
+  }
 
   return (
     <FormShell
       title="Kodu girin"
-      description={`${verificationInfo.email} adresine 6 haneli kod gönderildi.`}
-      action={
-        <Button
-          nativeButton={ok ? false : undefined}
-          className="w-full"
-          size="lg"
-          disabled={!ok}
-          render={ok ? <Link href={nextHref} /> : undefined}
-        >
-          Doğrula ve giriş yap
-        </Button>
+      description={
+        email
+          ? `${email} adresine 6 haneli kod gönderildi.`
+          : "E-posta adresinize 6 haneli kod gönderildi."
       }
       footer={
         <>
@@ -55,15 +123,17 @@ export default function VerifyPage() {
           ) : (
             <button
               type="button"
-              onClick={() => setRemainingSeconds(verificationInfo.resendSeconds)}
-              className="text-primary underline underline-offset-4"
+              onClick={handleResend}
+              disabled={isResending || !email}
+              className="text-primary underline underline-offset-4 disabled:opacity-50"
             >
-              Kodu tekrar gönder
+              {isResending ? "Gönderiliyor…" : "Kodu tekrar gönder"}
             </button>
           )}
           <div className="mt-2">
             <Link
               href="/login"
+              onClick={clearPendingLogin}
               className="text-primary underline underline-offset-4"
             >
               E-posta adresini değiştir
@@ -72,26 +142,46 @@ export default function VerifyPage() {
         </>
       }
     >
-      <div className="flex justify-center">
-        <InputOTP
-          maxLength={verificationInfo.codeLength}
-          value={code}
-          onChange={setCode}
-          autoFocus
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        <div className="flex justify-center">
+          <InputOTP
+            maxLength={codeLength}
+            value={code}
+            onChange={(value) => {
+              setCode(value);
+              if (error) setError(null);
+            }}
+            autoFocus
+          >
+            <InputOTPGroup>
+              {Array.from({ length: codeLength }, (_, order) => (
+                <InputOTPSlot
+                  key={order}
+                  index={order}
+                  className="size-11 text-base"
+                />
+              ))}
+            </InputOTPGroup>
+          </InputOTP>
+        </div>
+        {error ? (
+          <p className="text-center text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <p className="prova-meta text-center normal-case">
+          Kod 10 dakika geçerlidir ve en fazla 5 deneme yapılabilir. Doğrulama
+          sonunda bu cihaz hesabınıza otomatik olarak bağlanır.
+        </p>
+        <Button
+          type="submit"
+          className="w-full"
+          size="lg"
+          disabled={isSubmitting || code.length !== codeLength}
         >
-          <InputOTPGroup>
-            {Array.from({ length: verificationInfo.codeLength }, (_, order) => (
-              <InputOTPSlot key={order} index={order} className="size-11 text-base" />
-            ))}
-          </InputOTPGroup>
-        </InputOTP>
-      </div>
-      <p className="prova-meta text-center normal-case">
-        Kod {verificationInfo.ttlMinutes} dakika geçerlidir, en fazla{" "}
-        {verificationInfo.attemptLimit} deneme yapılabilir. Doğrulama sonunda bu
-        cihaz hesabınıza bağlanır; yeni bir cihazda adresinize bilgilendirme
-        postası gönderilir.
-      </p>
+          {isSubmitting ? "Doğrulanıyor…" : "Doğrula ve giriş yap"}
+        </Button>
+      </form>
     </FormShell>
-  )
+  );
 }

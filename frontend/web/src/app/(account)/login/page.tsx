@@ -8,13 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormShell } from "@/components/prova/form-shell"
+import { accountFlowStorage, graphqlRequest } from "@/lib/graphql"
 
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = email.trim()
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
@@ -22,7 +24,35 @@ export default function LoginPage() {
       return
     }
     setError(null)
-    router.push("/verify")
+    setIsSubmitting(true)
+    try {
+      const data = await graphqlRequest<{
+        requestLoginCode: { resendAfterSeconds: number }
+      }>(
+        `mutation RequestLoginCode($input: RequestLoginCodeInput!) {
+        requestLoginCode(input: $input) { resendAfterSeconds }
+      }`,
+        { input: { email: trimmed } },
+      )
+      window.sessionStorage.setItem(
+        accountFlowStorage.email,
+        trimmed.toLowerCase(),
+      )
+      window.sessionStorage.setItem(accountFlowStorage.mode, "login")
+      window.sessionStorage.setItem(
+        accountFlowStorage.resendAfter,
+        String(data.requestLoginCode.resendAfterSeconds),
+      )
+      router.push("/verify")
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Kod gönderilemedi",
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -32,7 +62,10 @@ export default function LoginPage() {
       footer={
         <>
           Hesabınız yok mu?{" "}
-          <Link href="/register" className="text-primary underline underline-offset-4">
+          <Link
+            href="/register"
+            className="text-primary underline underline-offset-4"
+          >
             Kayıt olun
           </Link>
         </>
@@ -64,8 +97,13 @@ export default function LoginPage() {
           ) : null}
         </div>
         <div className="pt-1">
-          <Button type="submit" className="w-full" size="lg">
-            Kod gönder
+          <Button
+            type="submit"
+            className="w-full"
+            size="lg"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Gönderiliyor…" : "Kod gönder"}
           </Button>
         </div>
       </form>

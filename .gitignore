@@ -38,6 +38,7 @@ Thumbs.db
 
 # Build output
 dist/
+release/
 tmp/
 .tmp/
 
@@ -48,6 +49,7 @@ bin/air
 node_modules/
 .next/
 out/
+/frontend/desktop/dist-electron/
 
 # Logs
 *.log
@@ -57,3 +59,8 @@ out/
 
 # Local run state (pids, logs) from start.sh
 .run/
+
+# Local ML environments and generated dataset output
+backend/ml/.venv/
+backend/ml/.DS_Store
+backend/ml/generated/

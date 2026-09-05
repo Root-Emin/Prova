@@ -3,6 +3,7 @@
 import { Laptop, Mic, MicOff, TriangleAlert } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { ProvaLogo } from "@/components/prova/logo"
 import { useDeviceState } from "@/hooks/use-device-state"
 
 const micView = {
@@ -29,9 +30,7 @@ export function TopBar({ sade = false }: { sade?: boolean }) {
       )}
     >
       <div className="flex items-center gap-3">
-        <span className="font-heading text-sm tracking-tight text-primary">
-          Prova
-        </span>
+        <ProvaLogo size="sm" />
         {!sade && (
           <>
             <span className="h-4 w-px bg-border" aria-hidden />

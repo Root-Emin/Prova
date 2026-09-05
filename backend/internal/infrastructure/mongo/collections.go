@@ -116,6 +116,20 @@ func EnsureIndexes(ctx context.Context, db *mongo.Database) error {
 			Keys:    bson.D{{Key: "session_id", Value: 1}},
 			Options: options.Index().SetName("idx_session"),
 		},
+		{
+			// Yeni SubmitTurn çağrılarında aynı request_id ve role ikinci kez
+			// yazılamaz. Partial index eski turn'lerde olmayan alanın unique
+			// kısıtına takılmasını önler.
+			Keys: bson.D{
+				{Key: "org_id", Value: 1},
+				{Key: "session_id", Value: 1},
+				{Key: "request_id", Value: 1},
+				{Key: "role", Value: 1},
+			},
+			Options: options.Index().SetUnique(true).
+				SetPartialFilterExpression(bson.M{"request_id": bson.M{"$exists": true}}).
+				SetName("uq_org_session_request_role"),
+		},
 	}
 	if _, err := db.Collection(CollectionTurns).Indexes().CreateMany(ctx, turnIndexes); err != nil {
 		return fmt.Errorf("ensure indexes on %s: %w", CollectionTurns, err)

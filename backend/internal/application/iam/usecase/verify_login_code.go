@@ -10,7 +10,6 @@ import (
 
 	"github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
 	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
-	iamEvent "github.com/masterfabric-go/masterfabric/internal/domain/iam/event"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/service"
@@ -115,7 +114,22 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 		return nil, err
 	}
 
-	if !uc.CodeSvc.Matches(record.CodeDigest, req.Code) {
+	var user *model.User
+	if _, bound := uc.CodeSvc.(service.AccountBoundLoginCodeService); bound {
+		// Resolve by the immutable identity carried by the challenge, not by a
+		// caller-controlled e-mail lookup. The current e-mail must still match
+		// because it is part of the HMAC input and must invalidate old codes
+		// after an address change.
+		if record.UserID == uuid.Nil {
+			return nil, errInvalidCode()
+		}
+		user, err = uc.Users.GetByID(ctx, record.UserID)
+		if err != nil || model.NormalizeEmail(user.Email) != email {
+			return nil, errInvalidCode()
+		}
+	}
+
+	if !matchesLoginCode(uc.CodeSvc, user, email, record.CodeDigest, req.Code) {
 		uc.recordFailedAttempt(ctx, record, now)
 		uc.chargeAccountAttempt(ctx, email, now)
 		uc.Audit.Record(ctx, auditService.Entry{
@@ -130,13 +144,22 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 
 	// Burn the code before doing anything else. Two requests arriving with the
 	// same correct code must not both produce a session.
-	if err := uc.Codes.MarkConsumed(ctx, record.ID, now); err != nil {
-		return nil, err
-	}
-
-	user, err := uc.resolveUser(ctx, email, now)
+	consumed, err := consumeLoginCode(ctx, uc.Codes, record.ID, now)
 	if err != nil {
 		return nil, err
+	}
+	if !consumed {
+		return nil, errInvalidCode()
+	}
+
+	if user == nil {
+		user, err = uc.resolveUser(ctx, email)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !user.IsEmailVerified() {
+		return nil, errInvalidCode()
 	}
 
 	// Kilitli hesap, kodu doğru bilse bile giremez. Yanıt, geçersiz kodla
@@ -361,43 +384,19 @@ func (uc *VerifyLoginCodeUseCase) chargeAccountAttempt(ctx context.Context, emai
 	}
 }
 
-// resolveUser returns the account for the address, creating it when the
-// deployment allows self-signup. Provisioning happens here rather than at
-// request time so that unredeemed codes leave no account behind.
-func (uc *VerifyLoginCodeUseCase) resolveUser(ctx context.Context, email string, now time.Time) (*model.User, error) {
+// resolveUser returns an existing verified account. Registration and mailbox
+// ownership verification are separate workflows and never happen here.
+func (uc *VerifyLoginCodeUseCase) resolveUser(ctx context.Context, email string) (*model.User, error) {
 	user, err := uc.Users.GetByEmail(ctx, email)
 	switch {
 	case err == nil:
-		if user.EmailVerifiedAt == nil {
-			verifiedAt := now
-			user.EmailVerifiedAt = &verifiedAt
-			if err := uc.Users.Update(ctx, user); err != nil {
-				return nil, err
-			}
+		if !user.IsEmailVerified() {
+			return nil, errInvalidCode()
 		}
 		return user, nil
 
 	case errors.Is(err, domainErr.ErrNotFound):
-		if !uc.Cfg.SelfSignup {
-			// The code was valid, so this is not an attacker probing; it is an
-			// address that lost its invitation between request and redemption.
-			return nil, errInvalidCode()
-		}
-		verifiedAt := now
-		user = &model.User{
-			Email:           email,
-			Status:          model.UserStatusActive,
-			EmailVerifiedAt: &verifiedAt,
-		}
-		if err := uc.Users.Create(ctx, user); err != nil {
-			return nil, err
-		}
-		_ = uc.EventBus.Publish(ctx, events.TopicIAM, iamEvent.UserRegistered{
-			UserID:    user.ID,
-			Email:     user.Email,
-			Timestamp: now,
-		})
-		return user, nil
+		return nil, errInvalidCode()
 
 	default:
 		return nil, err

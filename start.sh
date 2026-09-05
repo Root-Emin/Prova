@@ -5,20 +5,22 @@
 # Brings the whole project up with a single command and takes it all down again
 # when you stop it (Ctrl+C or ./start.sh stop).
 #
-#   Infrastructure : Postgres, Redis, Mongo, Kafka, Kafka UI (Docker Compose)
+#   Infrastructure : Postgres, Redis, Mongo, Mailpit (+ optional Kafka / Kafka UI)
 #   Backend        : Go API with hot-reload (air)  → http://localhost:8080
-#   Frontend       : Next.js dev server            → http://localhost:3000
+#   Frontend (web) : Next.js dev server            → http://localhost:3000
+#   Desktop        : Electron + Next.js renderer  → http://127.0.0.1:3100
 #
 # Usage:
-#   ./start.sh            Full stack: infra + migrations + backend + frontend
+#   ./start.sh            Full stack: infra + migrations + backend + frontend + desktop
 #   ./start.sh infra      Infrastructure + migrations only
 #   ./start.sh backend    Backend only (infra must already be running)
-#   ./start.sh frontend   Frontend only
+#   ./start.sh frontend   Web frontend only
+#   ./start.sh desktop    Desktop (Electron) only
 #   ./start.sh stop       Stop everything (apps + Docker services)
 #   ./start.sh restart    Stop, then start the full stack
 #   ./start.sh status     Show what is currently running
 #   ./start.sh migrate    Run database migrations only
-#   ./start.sh logs       Tail backend + frontend logs
+#   ./start.sh logs       Tail backend + frontend + desktop logs
 #   ./start.sh clean      Stop everything, drop volumes, remove build artifacts
 #   ./start.sh help       Show this help
 #
@@ -27,16 +29,20 @@ set -euo pipefail
 # ─── Configuration ────────────────────────────────────────────────────────────
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
+FRONTEND_ROOT="$ROOT_DIR/frontend"
 FRONTEND_DIR="$ROOT_DIR/frontend/web"
+DESKTOP_DIR="$ROOT_DIR/frontend/desktop"
 COMPOSE_FILE="$BACKEND_DIR/deployments/docker-compose.yml"
 MIGRATION_DIR="$BACKEND_DIR/internal/infrastructure/postgres/migrations"
 
 RUN_DIR="$ROOT_DIR/.run"
 BACKEND_LOG="$RUN_DIR/backend.log"
 FRONTEND_LOG="$RUN_DIR/frontend.log"
+DESKTOP_LOG="$RUN_DIR/desktop.log"
 STACK_PID_FILE="$RUN_DIR/stack.pid"
 BACKEND_PID_FILE="$RUN_DIR/backend.pid"
 FRONTEND_PID_FILE="$RUN_DIR/frontend.pid"
+DESKTOP_PID_FILE="$RUN_DIR/desktop.pid"
 
 DB_USER="masterfabric"
 DB_NAME="masterfabric"
@@ -47,13 +53,15 @@ SELF_PGID="$(ps -o pgid= -p $$ | tr -d ' ')"
 
 BACKEND_PORT="${SERVER_PORT:-8080}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+DESKTOP_PORT="${DESKTOP_PORT:-3100}"
 
 # Build env — workaround for macOS sandbox permissions on /var/folders
 export GOTMPDIR="$BACKEND_DIR/tmp"
 export GOCACHE="$BACKEND_DIR/tmp/go-cache"
 export TMPDIR="$BACKEND_DIR/tmp"
 export CGO_ENABLED=0
-export KAFKA_ENABLED="${KAFKA_ENABLED:-true}"
+export KAFKA_ENABLED="${KAFKA_ENABLED:-false}"
+export PROVA_EMAIL="${PROVA_EMAIL:-mailpit}"
 
 # Docker Compose project name — keeps Prova's containers, network and volumes
 # grouped under "prova" instead of the compose file's parent directory.
@@ -93,11 +101,51 @@ load_env() {
         log_warn "backend/.env not found — using local defaults (see backend/.env.example)"
     fi
 
-    # The Resend sender aborts startup when its API key is empty; without a
-    # configured mailbox, fall back to the explicit no-delivery provider.
-    if [[ "${EMAIL_PROVIDER:-resend}" == "resend" && -z "${RESEND_API_KEY:-}" ]]; then
-        log_warn "RESEND_API_KEY is empty — starting with EMAIL_PROVIDER=none (login codes are not delivered)"
-        export EMAIL_PROVIDER=none
+    # Re-apply CLI/env overrides after sourcing .env (caller defaults win).
+    export PROVA_EMAIL="${PROVA_EMAIL:-mailpit}"
+    export KAFKA_ENABLED="${KAFKA_ENABLED:-false}"
+
+    case "${PROVA_EMAIL}" in
+        mailpit|smtp|local)
+            export EMAIL_PROVIDER=smtp
+            export SMTP_HOST="${SMTP_HOST:-localhost}"
+            export SMTP_PORT="${SMTP_PORT:-1025}"
+            export SMTP_USE_TLS="${SMTP_USE_TLS:-false}"
+            # Ensure a From address for local SMTP / Mailpit delivery.
+            if [[ -z "${EMAIL_FROM_ADDRESS:-}" && -z "${RESEND_FROM_EMAIL:-}" ]]; then
+                export EMAIL_FROM_ADDRESS="${EMAIL_FROM_ADDRESS:-Prova <prova@localhost>}"
+            fi
+            if [[ -z "${EMAIL_FROM_NAME:-}" ]]; then
+                export EMAIL_FROM_NAME=Prova
+            fi
+            log_info "Email mode: PROVA_EMAIL=${PROVA_EMAIL} → EMAIL_PROVIDER=smtp (${SMTP_HOST}:${SMTP_PORT})"
+            ;;
+        resend)
+            export EMAIL_PROVIDER=resend
+            if [[ -z "${RESEND_API_KEY:-}" ]]; then
+                log_warn "RESEND_API_KEY is empty — starting with EMAIL_PROVIDER=none (login codes are not delivered)"
+                export EMAIL_PROVIDER=none
+            else
+                log_info "Email mode: PROVA_EMAIL=resend → Resend provider"
+            fi
+            ;;
+        none)
+            export EMAIL_PROVIDER=none
+            log_info "Email mode: PROVA_EMAIL=none → EMAIL_PROVIDER=none"
+            ;;
+        *)
+            log_warn "Unknown PROVA_EMAIL=${PROVA_EMAIL} — leaving EMAIL_PROVIDER=${EMAIL_PROVIDER:-unset}"
+            if [[ "${EMAIL_PROVIDER:-resend}" == "resend" && -z "${RESEND_API_KEY:-}" ]]; then
+                log_warn "RESEND_API_KEY is empty — starting with EMAIL_PROVIDER=none"
+                export EMAIL_PROVIDER=none
+            fi
+            ;;
+    esac
+
+    if [[ -n "${LLM_API_KEY:-}" || -n "${LLM_API_KEYS:-}" ]]; then
+        log_ok "LLM API key: present"
+    else
+        log_warn "LLM API key: missing (LLM_API_KEY / LLM_API_KEYS empty)"
     fi
 }
 
@@ -131,7 +179,7 @@ kill_port() {
 }
 
 # Terminate a pid file's process together with its whole process group,
-# so children (air's built binary, next-server) do not survive.
+# so children (air's built binary, next-server, electron) do not survive.
 stop_pidfile() {
     local pid_file="$1" label="$2" pid pgid
     [[ -f "$pid_file" ]] || return 0
@@ -178,9 +226,9 @@ install_air() {
 }
 
 install_frontend_deps() {
-    if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
-        log_info "Installing frontend dependencies (npm install)..."
-        (cd "$FRONTEND_DIR" && npm install)
+    if [[ ! -d "$FRONTEND_ROOT/node_modules" ]]; then
+        log_info "Installing frontend dependencies (npm install in frontend/)..."
+        (cd "$FRONTEND_ROOT" && npm install)
     fi
 }
 
@@ -197,6 +245,23 @@ wait_for_http() {
     return 1
 }
 
+wait_healthy() {
+    local svc="$1" retries="${2:-30}"
+    local i health
+    for i in $(seq 1 "$retries"); do
+        health=$(docker inspect --format='{{.State.Health.Status}}' "$svc" 2>/dev/null || echo "missing")
+        if [[ "$health" == "healthy" ]]; then
+            log_ok "$svc is healthy"
+            return 0
+        fi
+        if [[ $i -eq $retries ]]; then
+            log_warn "$svc did not become healthy (status: $health)"
+            return 1
+        fi
+        sleep 2
+    done
+}
+
 # ─── Infrastructure ───────────────────────────────────────────────────────────
 
 start_infra() {
@@ -206,23 +271,20 @@ start_infra() {
     log_info "Starting Docker Compose services..."
     docker compose -f "$COMPOSE_FILE" up -d
 
-    log_info "Waiting for services to become healthy..."
-    local services=("prova-postgres" "prova-redis" "prova-mongo" "prova-kafka")
+    log_info "Waiting for core services to become healthy..."
+    local services=("prova-postgres" "prova-redis" "prova-mongo" "prova-mailpit")
+    local svc
     for svc in "${services[@]}"; do
-        local retries=30
-        for i in $(seq 1 $retries); do
-            local health
-            health=$(docker inspect --format='{{.State.Health.Status}}' "$svc" 2>/dev/null || echo "missing")
-            if [[ "$health" == "healthy" ]]; then
-                log_ok "$svc is healthy"
-                break
-            fi
-            if [[ $i -eq $retries ]]; then
-                log_warn "$svc did not become healthy (status: $health)"
-            fi
-            sleep 2
-        done
+        wait_healthy "$svc" || true
     done
+
+    if [[ "${KAFKA_ENABLED}" == "true" ]]; then
+        log_info "KAFKA_ENABLED=true — starting Kafka profile..."
+        docker compose -f "$COMPOSE_FILE" --profile kafka up -d
+        wait_healthy "prova-kafka" || true
+    else
+        log_info "KAFKA_ENABLED=false — skipping Kafka / Kafka UI"
+    fi
 
     echo ""
     docker compose -f "$COMPOSE_FILE" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
@@ -232,7 +294,8 @@ start_infra() {
 stop_infra() {
     log_step "Stopping infrastructure"
     if docker info &>/dev/null; then
-        docker compose -f "$COMPOSE_FILE" down
+        # Include kafka profile so profiled services are torn down when present.
+        docker compose -f "$COMPOSE_FILE" --profile kafka down
         log_ok "Docker services stopped"
     else
         log_warn "Docker is not running — nothing to stop"
@@ -292,7 +355,7 @@ start_backend() {
 }
 
 start_frontend() {
-    log_step "Starting frontend (Next.js dev)"
+    log_step "Starting frontend (Next.js web)"
     ensure_dirs
     install_frontend_deps
 
@@ -312,24 +375,61 @@ start_frontend() {
     wait_for_http "http://localhost:$FRONTEND_PORT" "Frontend" 90 || true
 }
 
+start_desktop() {
+    log_step "Starting desktop (Electron + Next.js renderer)"
+    ensure_dirs
+    install_frontend_deps
+
+    stop_pidfile "$DESKTOP_PID_FILE" "Previous desktop"
+    kill_port "$DESKTOP_PORT"
+
+    : > "$DESKTOP_LOG"
+    set -m
+    (
+        cd "$DESKTOP_DIR"
+        export PROVA_GRAPHQL_URL="http://127.0.0.1:${BACKEND_PORT}/graphql"
+        export NEXT_PUBLIC_GRAPHQL_URL="http://127.0.0.1:${BACKEND_PORT}/graphql"
+        exec npm run dev
+    ) >>"$DESKTOP_LOG" 2>&1 &
+    echo $! > "$DESKTOP_PID_FILE"
+    set +m
+
+    log_ok "Desktop started (pid $(cat "$DESKTOP_PID_FILE")) → log: .run/desktop.log"
+    wait_for_http "http://127.0.0.1:$DESKTOP_PORT" "Desktop" 90 || true
+}
+
 stop_apps() {
     log_step "Stopping applications"
+    stop_pidfile "$DESKTOP_PID_FILE" "Desktop"
     stop_pidfile "$FRONTEND_PID_FILE" "Frontend"
     stop_pidfile "$BACKEND_PID_FILE" "Backend"
+    kill_port "$DESKTOP_PORT"
     kill_port "$BACKEND_PORT"
     kill_port "$FRONTEND_PORT"
 }
 
 print_endpoints() {
     echo ""
-    echo -e "${BOLD}Prova is running${NC}"
+    echo -e "${BOLD}Prova is running (full stack)${NC}"
     echo -e "  Frontend:   ${GREEN}http://localhost:$FRONTEND_PORT${NC}"
+    echo -e "  Desktop:    ${GREEN}http://127.0.0.1:$DESKTOP_PORT${NC}  (Electron loads this)"
     echo -e "  API:        ${GREEN}http://localhost:$BACKEND_PORT${NC}"
+    echo -e "  GraphQL:    http://127.0.0.1:$BACKEND_PORT/graphql"
     echo -e "  Health:     http://localhost:$BACKEND_PORT/health/ready"
     echo -e "  Metrics:    http://localhost:$BACKEND_PORT/metrics"
-    echo -e "  Kafka UI:   http://localhost:8090"
+    echo -e "  Mailpit:    ${GREEN}http://localhost:8025${NC}  (SMTP → localhost:1025)"
+    if [[ "${KAFKA_ENABLED}" == "true" ]]; then
+        echo -e "  Kafka UI:   http://localhost:8090"
+    else
+        echo -e "  Kafka:      disabled (set KAFKA_ENABLED=true to enable)"
+    fi
+    if [[ -n "${LLM_API_KEY:-}" || -n "${LLM_API_KEYS:-}" ]]; then
+        echo -e "  LLM:        key present"
+    else
+        echo -e "  LLM:        ${YELLOW}key missing${NC} — set LLM_API_KEY in backend/.env"
+    fi
     echo ""
-    echo -e "  Logs:       .run/backend.log · .run/frontend.log"
+    echo -e "  Logs:       .run/backend.log · .run/frontend.log · .run/desktop.log"
     echo -e "  Stop:       ${BOLD}Ctrl+C${NC} (or ./start.sh stop from another shell)"
     echo ""
 }
@@ -362,11 +462,12 @@ cmd_up() {
     run_migrations
     start_backend
     start_frontend
+    start_desktop
     print_endpoints
 
     log_info "Streaming logs (Ctrl+C stops the whole stack)..."
     echo ""
-    tail -n 0 -f "$BACKEND_LOG" "$FRONTEND_LOG" &
+    tail -n 0 -f "$BACKEND_LOG" "$FRONTEND_LOG" "$DESKTOP_LOG" &
     TAIL_PID=$!
     wait "$TAIL_PID" 2>/dev/null || true
     shutdown_all
@@ -395,6 +496,16 @@ cmd_frontend() {
     start_frontend
     log_info "Streaming frontend log (Ctrl+C stops it)..."
     tail -n 0 -f "$FRONTEND_LOG" &
+    TAIL_PID=$!
+    wait "$TAIL_PID" 2>/dev/null || true
+}
+
+cmd_desktop() {
+    ensure_dirs
+    trap shutdown_apps_only INT TERM EXIT
+    start_desktop
+    log_info "Streaming desktop log (Ctrl+C stops it)..."
+    tail -n 0 -f "$DESKTOP_LOG" &
     TAIL_PID=$!
     wait "$TAIL_PID" 2>/dev/null || true
 }
@@ -441,8 +552,12 @@ cmd_restart() {
 cmd_status() {
     log_step "Application processes"
     local shown=0
-    for entry in "backend:$BACKEND_PID_FILE:$BACKEND_PORT" "frontend:$FRONTEND_PID_FILE:$FRONTEND_PORT"; do
-        local name pid_file port pid
+    local entry name pid_file port pid
+    for entry in \
+        "backend:$BACKEND_PID_FILE:$BACKEND_PORT" \
+        "frontend:$FRONTEND_PID_FILE:$FRONTEND_PORT" \
+        "desktop:$DESKTOP_PID_FILE:$DESKTOP_PORT"
+    do
         IFS=':' read -r name pid_file port <<< "$entry"
         pid=$(cat "$pid_file" 2>/dev/null || echo "")
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
@@ -472,6 +587,7 @@ cmd_logs() {
     local files=()
     [[ -f "$BACKEND_LOG" ]] && files+=("$BACKEND_LOG")
     [[ -f "$FRONTEND_LOG" ]] && files+=("$FRONTEND_LOG")
+    [[ -f "$DESKTOP_LOG" ]] && files+=("$DESKTOP_LOG")
     if [[ ${#files[@]} -eq 0 ]]; then
         log_warn "No application logs yet. Start the stack with ./start.sh"
         return 0
@@ -483,58 +599,67 @@ cmd_clean() {
     log_step "Cleaning up"
     stop_apps
     if docker info &>/dev/null; then
-        docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
+        docker compose -f "$COMPOSE_FILE" --profile kafka down -v 2>/dev/null || true
     fi
     rm -rf "$BACKEND_DIR/tmp" "$BACKEND_DIR/bin/server" "$BACKEND_DIR/.tmp" "$RUN_DIR"
-    rm -rf "$FRONTEND_DIR/.next"
-    log_ok "Cleaned: Docker volumes, backend tmp/, frontend .next/, .run/"
+    rm -rf "$FRONTEND_DIR/.next" "$DESKTOP_DIR/.next"
+    log_ok "Cleaned: Docker volumes, backend tmp/, frontend+desktop .next/, .run/"
 }
 
 cmd_help() {
     echo -e "${BOLD}Prova full-stack runner${NC}"
     echo ""
+    echo "Starts the FULL stack by default: infra + migrations + backend + web + desktop."
+    echo ""
     echo "Usage: ./start.sh [command]"
     echo ""
     echo "Commands:"
-    echo -e "  ${GREEN}(default)${NC}   Start everything: infra + migrations + backend + frontend"
-    echo -e "  ${GREEN}infra${NC}       Start infrastructure + migrations only"
-    echo -e "  ${GREEN}backend${NC}     Start backend only (hot-reload)"
-    echo -e "  ${GREEN}frontend${NC}    Start frontend only"
-    echo -e "  ${GREEN}stop${NC}        Stop applications and Docker services"
-    echo -e "  ${GREEN}restart${NC}     Stop everything, then start the full stack"
-    echo -e "  ${GREEN}status${NC}      Show what is running"
-    echo -e "  ${GREEN}migrate${NC}     Run database migrations"
-    echo -e "  ${GREEN}logs${NC}        Tail backend + frontend logs"
-    echo -e "  ${GREEN}clean${NC}       Stop everything, drop volumes, remove build artifacts"
-    echo -e "  ${GREEN}help${NC}        Show this help message"
+    echo -e "  ${GREEN}(default)${NC}         Start everything: infra + migrations + backend + frontend + desktop"
+    echo -e "  ${GREEN}infra${NC}             Start infrastructure + migrations only"
+    echo -e "  ${GREEN}backend${NC}           Start backend only (hot-reload)"
+    echo -e "  ${GREEN}frontend${NC}          Start web frontend only"
+    echo -e "  ${GREEN}desktop${NC}|electron  Start desktop (Electron) only"
+    echo -e "  ${GREEN}stop${NC}              Stop applications and Docker services"
+    echo -e "  ${GREEN}restart${NC}           Stop everything, then start the full stack"
+    echo -e "  ${GREEN}status${NC}            Show what is running"
+    echo -e "  ${GREEN}migrate${NC}           Run database migrations"
+    echo -e "  ${GREEN}logs${NC}              Tail backend + frontend + desktop logs"
+    echo -e "  ${GREEN}clean${NC}             Stop everything, drop volumes, remove build artifacts"
+    echo -e "  ${GREEN}help${NC}              Show this help message"
     echo ""
     echo "Environment:"
-    echo "  KAFKA_ENABLED=true    (default: true)"
-    echo "  SERVER_PORT=8080      backend port"
-    echo "  FRONTEND_PORT=3000    frontend port"
+    echo "  KAFKA_ENABLED=false     (default: false; set true for Kafka + Kafka UI)"
+    echo "  PROVA_EMAIL=mailpit     (default: mailpit; also: smtp|local|resend|none)"
+    echo "  SERVER_PORT=8080        backend port"
+    echo "  FRONTEND_PORT=3000      web frontend port"
+    echo "  DESKTOP_PORT=3100       desktop renderer port"
     echo "  backend/.env is sourced automatically when present."
     echo ""
     echo "Endpoints (when running):"
     echo "  Frontend:   http://localhost:3000"
+    echo "  Desktop:    http://127.0.0.1:3100"
     echo "  API:        http://localhost:8080"
+    echo "  GraphQL:    http://127.0.0.1:8080/graphql"
     echo "  Health:     http://localhost:8080/health/ready"
     echo "  Metrics:    http://localhost:8080/metrics"
-    echo "  Kafka UI:   http://localhost:8090"
+    echo "  Mailpit:    http://localhost:8025"
+    echo "  Kafka UI:   http://localhost:8090  (only if KAFKA_ENABLED=true)"
 }
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
-    infra)          cmd_infra    ;;
-    backend|server) cmd_backend  ;;
-    frontend|web)   cmd_frontend ;;
-    stop|down)      cmd_stop     ;;
-    restart)        cmd_restart  ;;
-    status|ps)      cmd_status   ;;
-    migrate)        cmd_migrate  ;;
-    logs)           cmd_logs     ;;
-    clean)          cmd_clean    ;;
-    help|-h|--help) cmd_help     ;;
-    up|start|"")    cmd_up       ;;
-    *)              log_error "Unknown command: $1"; echo ""; cmd_help; exit 1 ;;
+    infra)              cmd_infra    ;;
+    backend|server)     cmd_backend  ;;
+    frontend|web)       cmd_frontend ;;
+    desktop|electron)   cmd_desktop  ;;
+    stop|down)          cmd_stop     ;;
+    restart)            cmd_restart  ;;
+    status|ps)          cmd_status   ;;
+    migrate)            cmd_migrate  ;;
+    logs)               cmd_logs     ;;
+    clean)              cmd_clean    ;;
+    help|-h|--help)     cmd_help     ;;
+    up|start|"")        cmd_up       ;;
+    *)                  log_error "Unknown command: $1"; echo ""; cmd_help; exit 1 ;;
 esac

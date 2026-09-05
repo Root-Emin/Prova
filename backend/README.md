@@ -20,8 +20,9 @@ docker compose -f deployments/docker-compose.yml up -d postgres mongo redis mail
 ./scripts/migrate.sh up
 
 # 3. Yapılandırma
-cp .env.example .env        # JWT_SECRET ve AUTH_CODE_PEPPER üretin
+cp .env.example .env        # JWT_SECRET, AUTH_CODE_PEPPER ve EMAIL_VERIFICATION_OTP_PEPPER üretin
 #   openssl rand -base64 48   → JWT_SECRET
+#   openssl rand -base64 32   → EMAIL_VERIFICATION_OTP_PEPPER
 #   openssl rand -base64 32   → AUTH_CODE_PEPPER
 
 # 4. Tohum verisi (demo organizasyonu, karakterler, senaryolar, rubrik, LLM profilleri)
@@ -116,6 +117,23 @@ hiç eşleşmez.
 Oturum başlarken senaryo, karakter ve rubrik **sürüm numaraları** oturum
 belgesine yazılır. İçerik yarın değişse bile oturum kendi sürümüyle puanlanır.
 Sertifikasyon iddiası tam olarak buna dayanır.
+
+### Prova model stack'i
+
+Prova'da modeller görevlerine göre ayrıdır; tek bir model bütün hattı
+çalıştırmaz:
+
+| Görev | Model / runtime | Konum |
+|---|---|---|
+| Canlı role-play / persona | `Qwen/Qwen3-4B-Instruct-2507` | vLLM, düşük gecikmeli hızlı kademe |
+| Oturum sonu değerlendirme | `Qwen/Qwen3-30B-A3B-Instruct-2507` | vLLM/OpenAI-compatible güçlü kademe |
+| Yerel Speech-to-Text | Whisper Large V3 Turbo | Electron + `whisper.cpp`; ham ses backend'e gitmez |
+| Behavioral classifier | `dbmdz/bert-base-turkish-cased` (BERTurk) | Kendi multi-label dataset'imiz, sonra ONNX/Electron |
+
+Canlı akışta yerel Whisper metin üretir; Qwen 4B persona yanıtını üretir ve
+BERTurk davranış sinyallerini yerel olarak çıkarır. Oturum bitince transcript,
+rubrik ve oturum bağlamı Qwen 30B-A3B evaluator'a gider. BERTurk, güçlü
+evaluator'ın yerine geçmez; canlı göstergeler içindir.
 
 ### İki LLM kademesi
 
@@ -290,7 +308,7 @@ query {
 mutation {
   updateLLMProfile(lineageId: "…", input: {
     tier: FAST, provider: "openai-compatible"
-    baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini"
+    baseUrl: "http://localhost:8000/v1", model: "Qwen/Qwen3-4B-Instruct-2507"
     temperature: 0.85, topP: 0.95, maxTokens: 600
     systemPromptSuffix: "Yanıtlarını kısa tut."
     inputCostPer1K: 0.00015, outputCostPer1K: 0.0006
@@ -323,15 +341,23 @@ Tam liste ve gerekçeleri için [`.env.example`](.env.example). Yükte olanlar:
 |---|---|---|
 | `APP_ENV` | `development` | `production` katı doğrulamayı açar ve introspection'ı kapatır |
 | `JWT_SECRET` | *(dev varsayılanı)* | Üretimde zorunlu; varsayılanla boot durur |
-| `AUTH_CODE_PEPPER` | *(boş)* | Üretimde zorunlu; kod digest'lerinin tek koruması |
+| `EMAIL_VERIFICATION_OTP_PEPPER` | *(boş)* | Üretimde zorunlu; kullanıcıya bağlı kod digest'lerinin tek koruması |
+| `EMAIL_VERIFICATION_OTP_TTL_SECONDS` | `300` | Doğrulama challenge'ı Redis'te tam 5 dakika yaşar |
+| `EMAIL_VERIFICATION_MAX_ATTEMPTS` | `5` | Challenge başına yanlış deneme sınırı |
+| `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | Aynı adrese yeniden gönderim aralığı |
+| `AUTH_CODE_PEPPER` | *(boş)* | Parolasız giriş kodunun ayrı pepper'ı |
 | `MONGO_URI` | `mongodb://localhost:27017` | Üretimde varsayılanla boot durur |
-| `EMAIL_PROVIDER` | `smtp` | `resend`, `smtp`, `none`. Üretimde `none` ile boot durur |
+| `EMAIL_PROVIDER` | `resend` | `resend`, `smtp`, `none`. Üretimde `none` ile boot durur |
+| `RESEND_API_KEY` | *(boş)* | Resend API anahtarı; kaynak koda/loglara yazılmaz |
+| `RESEND_FROM_EMAIL` | *(boş)* | Örn. `'Prova <onboarding@resend.dev>'`; özel domain doğrulanınca yalnızca bu değer değişir |
 | `WEB_BASE_URL` | `http://localhost:3000` | Magic link'in açılacağı arayüz |
 | `TOKEN_ACCESS_TTL_SECONDS` | `900` | Kısa; oturum refresh rotasyonuyla sürer |
 | `TOKEN_REFRESH_TTL_SECONDS` | `2592000` | Ailenin toplam ömrü; rotasyon uzatmaz |
 | `TOKEN_MAX_FAILED_ATTEMPTS` | `10` | Eşik aşılınca hesap geçici kilitlenir |
 | `LIFECYCLE_DELETION_GRACE_SECONDS` | `2592000` | Geri alma penceresi; üretimde en az 24 saat |
 | `LLM_API_KEY` / `LLM_API_KEYS` | *(boş)* | Anahtarlar profilde değil env'de |
+| `LLM_FAST_BASE_URL` | `http://localhost:8000/v1` | Seed'deki Qwen 4B persona/vLLM endpoint'i |
+| `LLM_STRONG_BASE_URL` | `http://localhost:8001/v1` | Seed'deki Qwen 30B-A3B evaluator/vLLM endpoint'i |
 | `LLM_STORE_RAW_AUDIO` | `false` | Kapalı kalmalı; aşağıya bakın |
 | `GRAPHQL_MAX_DEPTH` | `12` | Fragment içindeki derinlik de sayılır |
 | `GRAPHQL_MAX_COMPLEXITY` | `500` | |

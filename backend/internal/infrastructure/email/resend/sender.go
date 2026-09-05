@@ -1,9 +1,6 @@
-// Package resend adapts the Resend HTTP API to the notification.Sender port.
-//
-// It speaks the Resend REST API directly rather than through a vendor SDK. A
-// single POST is the whole integration, and keeping it dependency-free means
-// the provider decision stays reversible: replacing this package is the entire
-// cost of leaving Resend.
+// Package resend adapts the official Resend Go SDK to the notification.Sender
+// port. Provider details remain in infrastructure; application code only sees
+// a provider-neutral message.
 package resend
 
 import (
@@ -13,85 +10,60 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	resendSDK "github.com/resend/resend-go/v4"
 
 	"github.com/masterfabric-go/masterfabric/internal/domain/notification/model"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 )
 
-const (
-	defaultBaseURL = "https://api.resend.com"
-	sendPath       = "/emails"
-	maxErrorBody   = 4 << 10
-)
+const defaultBaseURL = "https://api.resend.com/"
 
 // Sender delivers messages through Resend.
 type Sender struct {
-	apiKey  string
-	baseURL string
+	client  *resendSDK.Client
 	from    model.Address
 	replyTo string
-	client  *http.Client
+	apiKey  string
 }
 
-// New creates a Resend sender. It fails fast when credentials or the sender
-// address are missing: a half-configured mailer surfaces as users unable to log
-// in at all, which is far harder to diagnose at runtime than at boot.
+// New creates one configured SDK client for application bootstrap. The API key
+// is retained only by the SDK client and is never included in errors or logs.
 func New(cfg config.EmailConfig) (*Sender, error) {
 	if strings.TrimSpace(cfg.Resend.APIKey) == "" {
 		return nil, fmt.Errorf("resend: RESEND_API_KEY is empty")
 	}
-	if strings.TrimSpace(cfg.FromAddress) == "" {
-		return nil, fmt.Errorf("resend: EMAIL_FROM_ADDRESS is empty")
-	}
-
-	baseURL := strings.TrimRight(cfg.Resend.BaseURL, "/")
-	if baseURL == "" {
-		baseURL = defaultBaseURL
+	from, err := model.ParseAddress(cfg.FromAddress, cfg.FromName)
+	if err != nil {
+		return nil, fmt.Errorf("resend: RESEND_FROM_EMAIL is invalid")
 	}
 
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	client := resendSDK.NewCustomClient(&http.Client{
+		Timeout:   timeout,
+		Transport: tolerateEmptySuccessBody(http.DefaultTransport),
+	}, cfg.Resend.APIKey)
+	baseURL := strings.TrimSpace(cfg.Resend.BaseURL)
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+	parsed, err := url.Parse(strings.TrimRight(baseURL, "/") + "/")
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("resend: RESEND_BASE_URL is invalid")
+	}
+	client.BaseURL = parsed
 
-	return &Sender{
-		apiKey:  cfg.Resend.APIKey,
-		baseURL: baseURL,
-		from:    model.Address{Email: cfg.FromAddress, Name: cfg.FromName},
-		replyTo: cfg.ReplyTo,
-		client:  &http.Client{Timeout: timeout},
-	}, nil
+	return &Sender{client: client, from: from, replyTo: cfg.ReplyTo, apiKey: cfg.Resend.APIKey}, nil
 }
 
 // Name implements service.Sender.
-func (s *Sender) Name() string { return "resend" }
-
-type sendRequest struct {
-	From    string    `json:"from"`
-	To      []string  `json:"to"`
-	Subject string    `json:"subject"`
-	Text    string    `json:"text,omitempty"`
-	HTML    string    `json:"html,omitempty"`
-	ReplyTo string    `json:"reply_to,omitempty"`
-	Tags    []sendTag `json:"tags,omitempty"`
-}
-
-type sendTag struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-type sendResponse struct {
-	ID string `json:"id"`
-}
-
-type apiError struct {
-	Name       string `json:"name"`
-	Message    string `json:"message"`
-	StatusCode int    `json:"statusCode"`
-}
+func (s *Sender) Name() string { return config.ProviderResend }
 
 // Send implements service.Sender.
 func (s *Sender) Send(ctx context.Context, msg model.Message) (string, error) {
@@ -99,72 +71,37 @@ func (s *Sender) Send(ctx context.Context, msg model.Message) (string, error) {
 		return "", err
 	}
 
-	payload := sendRequest{
+	params := &resendSDK.SendEmailRequest{
 		From:    s.from.String(),
 		To:      []string{msg.To.Email},
 		Subject: msg.Subject,
 		Text:    msg.TextBody,
-		HTML:    msg.HTMLBody,
+		Html:    msg.HTMLBody,
 		ReplyTo: s.replyTo,
 		Tags:    toTags(msg.Tags),
 	}
-
-	body, err := json.Marshal(payload)
+	response, err := s.client.Emails.SendWithContext(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("resend: encode request: %w", err)
+		// The SDK error can contain provider diagnostics, but never the request
+		// body. Redact defensively even if a proxy/provider echoes an
+		// Authorization value in its response diagnostics.
+		detail := strings.ReplaceAll(err.Error(), s.apiKey, "[REDACTED]")
+		return "", fmt.Errorf("%w: resend: %s", model.ErrDeliveryFailed, detail)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+sendPath, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("resend: build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("%w: resend: %v", model.ErrDeliveryFailed, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("%w: resend: %s", model.ErrDeliveryFailed, describeError(resp))
-	}
-
-	var out sendResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		// Resend accepted the message; only the identifier is unreadable. The
-		// mail is on its way, so this must not fail the login request.
+	if response == nil {
 		return "", nil
 	}
-	return out.ID, nil
+	return response.Id, nil
 }
 
-// describeError extracts a message from an error response without ever
-// including the request body, which carries the login code.
-func describeError(resp *http.Response) string {
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-	if err != nil || len(raw) == 0 {
-		return fmt.Sprintf("http %d", resp.StatusCode)
-	}
-	var apiErr apiError
-	if err := json.Unmarshal(raw, &apiErr); err == nil && apiErr.Message != "" {
-		return fmt.Sprintf("http %d: %s", resp.StatusCode, apiErr.Message)
-	}
-	return fmt.Sprintf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-}
-
-// toTags converts neutral tags to Resend's list form. Resend restricts tag
-// names and values to ASCII letters, digits, underscores and dashes, so
-// anything else is dropped rather than sent and rejected.
-func toTags(tags map[string]string) []sendTag {
+func toTags(tags map[string]string) []resendSDK.Tag {
 	if len(tags) == 0 {
 		return nil
 	}
-	out := make([]sendTag, 0, len(tags))
+	out := make([]resendSDK.Tag, 0, len(tags))
 	for name, value := range tags {
 		if isTagSafe(name) && isTagSafe(value) {
-			out = append(out, sendTag{Name: name, Value: value})
+			out = append(out, resendSDK.Tag{Name: name, Value: value})
 		}
 	}
 	if len(out) == 0 {
@@ -185,4 +122,41 @@ func isTagSafe(s string) bool {
 		}
 	}
 	return true
+}
+
+// tolerateEmptySuccessBody preserves the adapter's historical behavior for a
+// provider that accepted a send but returned an empty/non-JSON body. The SDK
+// otherwise reports a decode error after the provider has already accepted the
+// message, which would make a user retry and receive duplicate codes.
+type successBodyTransport struct{ base http.RoundTripper }
+
+func tolerateEmptySuccessBody(base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return successBodyTransport{base: base}
+}
+
+func (t successBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil || resp == nil || resp.StatusCode == http.StatusNoContent {
+		return resp, err
+	}
+	raw, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && !json.Valid(trimmed) {
+		raw = []byte(`{"id":""}`)
+	} else if json.Valid(trimmed) {
+		// The SDK only decodes structured errors when this header is present.
+		// Supplying it for a JSON provider response preserves the useful error
+		// message without exposing the request body.
+		resp.Header.Set("Content-Type", "application/json")
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(raw))
+	resp.ContentLength = int64(len(raw))
+	return resp, nil
 }

@@ -113,6 +113,25 @@ type RequestLoginCodePayload {
   resendAfterSeconds: Int!
 }
 
+type RegisterPayload {
+  registered: Boolean!
+  email: String!
+  expiresInSeconds: Int!
+  resendAfterSeconds: Int!
+}
+
+type RequestEmailVerificationCodePayload {
+  "İstek kabul edildi; hesap varlığı veya doğrulama durumu hakkında sinyal taşımaz."
+  sent: Boolean!
+  expiresInSeconds: Int!
+  resendAfterSeconds: Int!
+}
+
+type VerifyEmailPayload {
+  verified: Boolean!
+  verifiedAt: Time!
+}
+
 """Cihazın imzalaması gereken tek kullanımlık meydan okuma."""
 type DeviceChallenge {
   challenge: String!
@@ -289,8 +308,8 @@ type Score {
   "Puanı üreten model kimliği."
   model: String!
   """
-  Skor ezme kaydı. Yetkisiz kullanıcıda null döner: çalışan puanını görür,
-  ezilip ezilmediğini görmez.
+  Skor ezme kaydı. Yetkisiz kullanıcıda null döner; çalışan sonuçları
+  göremediği için bu alan yalnızca yetkili yönetici sorgularında anlamlıdır.
   """
   override: ScoreOverride @permission(requires: "score:override")
   createdAt: Time!
@@ -308,7 +327,8 @@ type Session {
   rubric: DocumentRef!
   character: DocumentRef!
   turns: [Turn!]!
-  score: Score
+  "Sonuç yalnızca puan okuma yetkisi olan kurum yöneticilerine açılır."
+  score: Score @permission(requires: "score:read")
   startedAt: Time!
   endedAt: Time
 }
@@ -465,8 +485,8 @@ type SessionEvent {
   signals: [String!]
   "SCORING_PROGRESS için 0-100 arası ilerleme."
   progress: Int
-  "SCORE_READY için tamamlanmış puan."
-  score: Score
+  "SCORE_READY için tamamlanmış puan; yalnızca sonuç okuma yetkisi olan yöneticilere iletilir."
+  score: Score @permission(requires: "score:read")
   occurredAt: Time!
 }
 
@@ -476,6 +496,21 @@ type SessionEvent {
 
 input RequestLoginCodeInput {
   email: String!
+}
+
+input RegisterInput {
+  email: String!
+  firstName: String!
+  lastName: String!
+}
+
+input RequestEmailVerificationCodeInput {
+  email: String!
+}
+
+input VerifyEmailInput {
+  email: String!
+  code: String!
 }
 
 input DeviceInput {
@@ -558,6 +593,8 @@ input StartSessionInput {
 
 input SubmitTurnInput {
   sessionId: UUID!
+  "Network retry'larında aynı turn'ü iki kez uygulamamak için istemci anahtarı."
+  requestId: UUID
   text: String!
 }
 
@@ -618,6 +655,9 @@ type Query {
 
 type Mutation {
   # --- kimlik ---
+  register(input: RegisterInput!): RegisterPayload!
+  requestEmailVerificationCode(input: RequestEmailVerificationCodeInput!): RequestEmailVerificationCodePayload!
+  verifyEmail(input: VerifyEmailInput!): VerifyEmailPayload!
   requestLoginCode(input: RequestLoginCodeInput!): RequestLoginCodePayload!
   verifyLoginCode(input: VerifyLoginCodeInput!): AuthPayload!
   verifyMagicLink(input: VerifyMagicLinkInput!): AuthPayload!

@@ -35,8 +35,9 @@ function formatTime(seconds: number) {
 }
 
 /**
- * Live session state. This will be wired to a GraphQL subscription and the
- * audio pipeline later; for now push-to-talk advances a scripted dialogue.
+ * Live session state. The production path will feed local
+ * Whisper Large V3 Turbo/whisper.cpp transcripts into the GraphQL session;
+ * this renderer slice currently uses scripted dialogue as its safe fallback.
  */
 export function useSession(): SessionState {
   const [step, setStep] = React.useState(0)

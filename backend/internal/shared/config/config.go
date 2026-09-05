@@ -16,20 +16,22 @@ type Config struct {
 	// eksikler uyarı olarak geçilir.
 	Environment string
 
-	Server    ServerConfig
-	Database  DatabaseConfig
-	Mongo     MongoConfig
-	Redis     RedisConfig
-	JWT       JWTConfig
-	Auth      AuthConfig
-	Email     EmailConfig
-	Kafka     KafkaConfig
-	WebSocket WebSocketConfig
-	Log       LogConfig
+	Server            ServerConfig
+	Database          DatabaseConfig
+	Mongo             MongoConfig
+	Redis             RedisConfig
+	JWT               JWTConfig
+	Auth              AuthConfig
+	EmailVerification EmailVerificationConfig
+	Email             EmailConfig
+	Kafka             KafkaConfig
+	WebSocket         WebSocketConfig
+	Log               LogConfig
 
 	// Prova'ya özgü bölümler.
 	GraphQL   GraphQLConfig
 	LLM       LLMConfig
+	AIService AIServiceConfig
 	Lifecycle LifecycleConfig
 	Token     TokenConfig
 }
@@ -150,9 +152,18 @@ type AuthConfig struct {
 	// an unknown one. Account enumeration is a timing problem, not only a
 	// wording problem.
 	MinResponseTime time.Duration
-	// SelfSignup provisions a user on first successful code verification.
-	// Turn this off once organisation invitations exist.
-	SelfSignup bool
+}
+
+// EmailVerificationConfig is deliberately separate from AuthConfig: these
+// OTPs prove ownership of an address and never create a login session.
+type EmailVerificationConfig struct {
+	Pepper              string
+	OTPTTL              time.Duration
+	MaxAttempts         int
+	ResendCooldown      time.Duration
+	MaxRequestsPerEmail int
+	MaxRequestsPerIP    int
+	RateLimitWindow     time.Duration
 }
 
 // E-posta sağlayıcı adları. Adlar burada durur çünkü hem fabrika hem de
@@ -246,8 +257,10 @@ func Load() *Config {
 			Issuer:          envOrDefault("JWT_ISSUER", "masterfabric"),
 		},
 		Auth: AuthConfig{
-			CodeLength:          envOrDefaultInt("AUTH_CODE_LENGTH", 6),
-			CodePepper:          envOrDefault("AUTH_CODE_PEPPER", ""),
+			CodeLength: envOrDefaultInt("AUTH_CODE_LENGTH", 6),
+			// Keep the verification pepper as a compatibility fallback for
+			// deployments created before the two business flows were separated.
+			CodePepper:          envOrDefault("AUTH_CODE_PEPPER", envOrDefault("EMAIL_VERIFICATION_OTP_PEPPER", "")),
 			CodeTTL:             time.Duration(envOrDefaultInt("AUTH_CODE_TTL_SECONDS", 600)) * time.Second,
 			MaxAttempts:         envOrDefaultInt("AUTH_CODE_MAX_ATTEMPTS", 5),
 			ResendCooldown:      time.Duration(envOrDefaultInt("AUTH_CODE_RESEND_COOLDOWN_SECONDS", 60)) * time.Second,
@@ -255,11 +268,22 @@ func Load() *Config {
 			MaxRequestsPerIP:    envOrDefaultInt("AUTH_CODE_MAX_REQUESTS_PER_IP", 20),
 			RateLimitWindow:     time.Duration(envOrDefaultInt("AUTH_CODE_RATE_LIMIT_WINDOW_SECONDS", 3600)) * time.Second,
 			MinResponseTime:     time.Duration(envOrDefaultInt("AUTH_MIN_RESPONSE_TIME_MS", 400)) * time.Millisecond,
-			SelfSignup:          envOrDefault("AUTH_SELF_SIGNUP", "true") == "true",
+		},
+		EmailVerification: EmailVerificationConfig{
+			Pepper:              envOrDefault("EMAIL_VERIFICATION_OTP_PEPPER", ""),
+			OTPTTL:              time.Duration(envOrDefaultInt("EMAIL_VERIFICATION_OTP_TTL_SECONDS", 300)) * time.Second,
+			MaxAttempts:         envOrDefaultInt("EMAIL_VERIFICATION_MAX_ATTEMPTS", 5),
+			ResendCooldown:      time.Duration(envOrDefaultInt("EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS", 60)) * time.Second,
+			MaxRequestsPerEmail: envOrDefaultInt("AUTH_CODE_MAX_REQUESTS_PER_EMAIL", 5),
+			MaxRequestsPerIP:    envOrDefaultInt("AUTH_CODE_MAX_REQUESTS_PER_IP", 20),
+			RateLimitWindow:     time.Duration(envOrDefaultInt("AUTH_CODE_RATE_LIMIT_WINDOW_SECONDS", 3600)) * time.Second,
 		},
 		Email: EmailConfig{
-			Provider:    envOrDefault("EMAIL_PROVIDER", "resend"),
-			FromAddress: envOrDefault("EMAIL_FROM_ADDRESS", ""),
+			Provider: envOrDefault("EMAIL_PROVIDER", "resend"),
+			// RESEND_FROM_EMAIL may be a bare address or a display address such
+			// as "Prova <onboarding@resend.dev>". EMAIL_FROM_ADDRESS remains a
+			// fallback for the legacy SMTP adapter.
+			FromAddress: envOrDefault("RESEND_FROM_EMAIL", envOrDefault("EMAIL_FROM_ADDRESS", "")),
 			FromName:    envOrDefault("EMAIL_FROM_NAME", "Prova"),
 			ReplyTo:     envOrDefault("EMAIL_REPLY_TO", ""),
 			Timeout:     time.Duration(envOrDefaultInt("EMAIL_TIMEOUT_SECONDS", 10)) * time.Second,
@@ -309,6 +333,10 @@ func Load() *Config {
 			CircuitCooldown:    time.Duration(envOrDefaultInt("LLM_CIRCUIT_COOLDOWN_SECONDS", 30)) * time.Second,
 			LongInputThreshold: envOrDefaultInt("LLM_LONG_INPUT_THRESHOLD", 4000),
 			StoreRawAudio:      envOrDefault("LLM_STORE_RAW_AUDIO", "false") == "true",
+		},
+		AIService: AIServiceConfig{
+			URL:     envOrDefault("AI_SERVICE_URL", "http://localhost:8090"),
+			Timeout: time.Duration(envOrDefaultInt("AI_SERVICE_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
 		Lifecycle: LifecycleConfig{
 			DeletionGracePeriod: time.Duration(envOrDefaultInt("LIFECYCLE_DELETION_GRACE_SECONDS", 30*24*3600)) * time.Second,
@@ -415,6 +443,14 @@ type LLMConfig struct {
 	// StoreRawAudio, ham ses kaydının saklanıp saklanmayacağı. Varsayılan
 	// kapalıdır ve öyle kalmalıdır: istemci backend'e yalnızca metin gönderir.
 	StoreRawAudio bool
+}
+
+// AIServiceConfig is the Go backend's transport configuration for the
+// internal persona inference service. Provider and model settings belong to
+// that service and are deliberately not duplicated in the public backend.
+type AIServiceConfig struct {
+	URL     string
+	Timeout time.Duration
 }
 
 // LifecycleConfig, hesap yaşam döngüsünün zaman ayarları.

@@ -3,29 +3,35 @@
 import { cn } from "@/lib/utils"
 import type { TranscriptLine } from "../details"
 
-/** Trainer review: the full conversation the score is based on. */
+/** Admin review: the full conversation the score is based on. */
 export function TranscriptPanel({
   lines,
 }: {
   lines: TranscriptLine[]
 }) {
   return (
-    <aside className="w-[300px] shrink-0">
-      <div className="sticky top-9 rounded-lg border border-border bg-card">
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-sm font-medium">Transkript</h2>
-          <p className="prova-meta normal-case">
-            Metin cihazda üretildi, ham ses saklanmadı.
-          </p>
+    <aside className="min-w-0">
+      <div className="sticky top-6 overflow-hidden rounded-xl border border-line-strong bg-card">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-4">
+          <div>
+            <p className="prova-meta uppercase">Kanıt kaydı</p>
+            <h2 className="mt-1 font-heading text-xl tracking-tight">Transkript</h2>
+            <p className="prova-meta mt-1 normal-case">
+              Puanların dayandığı görüşme metni.
+            </p>
+          </div>
+          <span className="prova-meta rounded-md border border-border px-2 py-1 normal-case">
+            {lines.length} mesaj
+          </span>
         </div>
-        <ul className="max-h-[560px] space-y-2 overflow-y-auto p-3">
+        <ul className="max-h-[640px] space-y-2 overflow-y-auto bg-muted/30 p-3">
           {lines.map((line) => {
             const isEmployee = line.speaker === "employee"
             return (
               <li
                 key={line.id}
                 className={cn(
-                  "rounded-md border px-3 py-2",
+                  "rounded-lg border px-3 py-2.5",
                   isEmployee
                     ? "ml-4 border-line-strong bg-muted"
                     : "mr-4 border-border bg-background"

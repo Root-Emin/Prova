@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 )
 
 // Tohum verisindeki sabit kimlikler. cmd/seed bunları yazıyor.
@@ -21,8 +23,8 @@ const (
 	calmCharacter   = "44444444-4444-4444-8444-444444444444"
 	serviceRubric   = "66666666-6666-4666-8666-666666666666"
 	fastProfile     = "99999999-9999-4999-8999-999999999999"
-	fastModelName   = "gpt-4o-mini"
-	strongModelName = "gpt-4o"
+	fastModelName   = provaModel.DefaultPersonaModel
+	strongModelName = provaModel.DefaultEvaluatorModel
 )
 
 // Geçerli bir TC kimlik numarası (checksum doğru). Yalnızca maskeleme
@@ -93,6 +95,40 @@ func (h *harness) requestCode(email string) error {
 	return nil
 }
 
+// registerAndVerify creates an account through the public registration flow
+// and redeems its dedicated e-mail-verification OTP. Existing seeded users are
+// already verified and are left unchanged.
+func (h *harness) registerAndVerify(email string) error {
+	resp, err := h.query("", fmt.Sprintf(
+		`mutation { register(input:{email:%q, firstName:"Doğrulama", lastName:"Kullanıcısı"}) { registered } }`, email))
+	if err != nil {
+		return err
+	}
+	if len(resp.Errors) > 0 {
+		if strings.Contains(strings.ToLower(resp.firstError()), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("kayıt başarısız: %s", resp.firstError())
+	}
+	body, err := h.mailBody(email)
+	if err != nil {
+		return fmt.Errorf("doğrulama iletisi: %w", err)
+	}
+	code, ok := loginCode(body)
+	if !ok {
+		return fmt.Errorf("doğrulama iletisinde altı haneli kod yok")
+	}
+	verified, err := h.query("", fmt.Sprintf(
+		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified } }`, email, code))
+	if err != nil {
+		return err
+	}
+	if len(verified.Errors) > 0 {
+		return fmt.Errorf("e-posta doğrulanamadı: %s", verified.firstError())
+	}
+	return nil
+}
+
 // deviceInput, giriş isteğine eklenecek cihaz alanı.
 type deviceInput struct {
 	Fingerprint string
@@ -158,6 +194,9 @@ func (h *harness) loginWithCode(email string, device *deviceInput, signature str
 
 // loginFull, kod akışını yürütür ve tam yanıtı döndürür.
 func (h *harness) loginFull(email string, device *deviceInput, signature string) (authResult, error) {
+	if err := h.registerAndVerify(email); err != nil {
+		return authResult{}, err
+	}
 	if err := h.requestCode(email); err != nil {
 		return authResult{}, err
 	}

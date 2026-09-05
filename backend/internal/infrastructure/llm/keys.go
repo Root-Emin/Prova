@@ -21,7 +21,7 @@ type EnvKeys struct {
 
 // NewEnvKeys reads LLM_API_KEY and LLM_API_KEYS from the environment.
 //
-// LLM_API_KEYS biçimi: "openai=sk-...,groq=gsk-..."
+// LLM_API_KEYS biçimi: "vllm=...,huggingface=hf_..."
 func NewEnvKeys() *EnvKeys {
 	keys := &EnvKeys{
 		defaultKey: os.Getenv("LLM_API_KEY"),

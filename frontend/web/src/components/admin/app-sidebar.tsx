@@ -16,31 +16,21 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { useRole } from "@/components/admin/role-context"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ProvaLogo } from "@/components/prova/logo"
+import { currentAdmin } from "@/lib/current-admin"
 import { isActive, groupLabel, menu, type MenuGroup } from "@/lib/menu"
-import { roleLabel, roleOrder, type Role } from "@/lib/roles"
 
-const roleOptions = Object.fromEntries(
-  roleOrder.map((role) => [role, roleLabel[role]])
-)
+import { initialsOf } from "@/app/(admin)/users/mock"
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const { role, setRole } = useRole()
 
   return (
     <Sidebar collapsible="offcanvas" className="border-r border-sidebar-border">
-      <SidebarHeader className="gap-0 px-3 pt-4 pb-3">
-        <span className="font-heading text-xl tracking-tight text-primary">
-          Prova
-        </span>
+      <SidebarHeader className="gap-1.5 px-3 pt-4 pb-3">
+        <ProvaLogo size="md" />
+        {/* The tenant name gets its own line; beside the mark it truncates. */}
         <span className="prova-meta uppercase">Anadolu Katılım Bankası</span>
       </SidebarHeader>
 
@@ -48,10 +38,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         {(["training", "organization"] as MenuGroup[]).map((group) => {
-          const items = menu.filter(
-            (item) => item.group === group && item.roles.includes(role)
-          )
-          if (items.length === 0) return null
+          const items = menu.filter((item) => item.group === group)
 
           return (
             <SidebarGroup key={group}>
@@ -77,26 +64,20 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="gap-2 border-t border-sidebar-border px-3 py-3">
-        <span className="prova-meta uppercase">Aktif rol</span>
-        <Select
-          items={roleOptions}
-          value={role}
-          onValueChange={(value) => setRole(value as Role)}
-        >
-          <SelectTrigger className="w-full bg-card">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {roleOrder.map((option) => (
-              <SelectItem key={option} value={option}>
-                {roleLabel[option]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="prova-meta normal-case">
-          Rotalar role göre kapılıdır; menü buna göre değişir.
-        </p>
+        <span className="prova-meta uppercase">Oturum</span>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Avatar>
+            <AvatarFallback>{initialsOf(currentAdmin.name)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">
+              {currentAdmin.name}
+            </div>
+            <div className="prova-meta truncate normal-case">
+              Kurum yöneticisi
+            </div>
+          </div>
+        </div>
       </SidebarFooter>
     </Sidebar>
   )

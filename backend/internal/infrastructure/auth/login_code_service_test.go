@@ -1,9 +1,13 @@
 package auth
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,4 +84,32 @@ func TestLoginCodeService_DigestIsPepperBound(t *testing.T) {
 
 	assert.True(t, svcA.Matches(digest, code))
 	assert.False(t, svcB.Matches(digest, code))
+}
+
+func TestLoginCodeService_BindsDigestToAccountAndCurrentEmail(t *testing.T) {
+	svc, err := NewLoginCodeService(testCodeConfig())
+	require.NoError(t, err)
+	userA := uuid.New()
+	userB := uuid.New()
+	code, digest, err := svc.GenerateFor(userA, "User@Example.com ")
+	require.NoError(t, err)
+
+	assert.True(t, svc.MatchesFor(userA, "user@example.com", digest, code))
+	assert.False(t, svc.MatchesFor(userB, "user@example.com", digest, code))
+	assert.False(t, svc.MatchesFor(userA, "other@example.com", digest, code))
+	assert.False(t, svc.MatchesFor(uuid.Nil, "user@example.com", digest, code))
+}
+
+func TestLoginCodeService_BoundDigestIsExactHMACInput(t *testing.T) {
+	pepper := "a-pepper-long-enough"
+	svc, err := NewEmailVerificationCodeService(config.EmailVerificationConfig{Pepper: pepper})
+	require.NoError(t, err)
+	userID := uuid.MustParse("a10db27d-8334-4bfe-9da5-715d6226eb72")
+	code, digest, err := svc.GenerateFor(userID, " User@Example.com ")
+	require.NoError(t, err)
+
+	mac := hmac.New(sha256.New, []byte(pepper))
+	_, _ = mac.Write([]byte(userID.String() + ":user@example.com:" + code))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	assert.Equal(t, expected, digest)
 }

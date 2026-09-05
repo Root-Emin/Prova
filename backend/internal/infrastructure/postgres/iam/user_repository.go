@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
@@ -82,6 +83,10 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 		user.Status, user.EmailVerifiedAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domainErr.New(domainErr.ErrAlreadyExists, "user already exists", err)
+		}
 		return domainErr.New(domainErr.ErrInternal, "failed to create user", err)
 	}
 	return nil
@@ -126,6 +131,21 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 		return domainErr.New(domainErr.ErrInternal, "failed to update user", err)
 	}
 	return nil
+}
+
+func (r *UserRepo) MarkEmailVerified(ctx context.Context, id uuid.UUID, normalizedEmail string, at time.Time) (bool, error) {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users
+		    SET email_verified_at = $1,
+		        status = CASE WHEN status = $2 THEN $3 ELSE status END,
+		        updated_at = $1
+		  WHERE id = $4 AND lower(email) = lower($5) AND email_verified_at IS NULL`,
+		at, model.UserStatusInactive, model.UserStatusActive, id, normalizedEmail,
+	)
+	if err != nil {
+		return false, domainErr.New(domainErr.ErrInternal, "failed to mark email verified", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func (r *UserRepo) Delete(ctx context.Context, id uuid.UUID) error {

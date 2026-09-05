@@ -167,34 +167,37 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		CancelAccountDeletion  func(childComplexity int) int
-		CreateCharacter        func(childComplexity int, input model.CharacterInput) int
-		CreateLLMProfile       func(childComplexity int, input model.LLMProfileInput) int
-		CreateRubric           func(childComplexity int, input model.RubricInput) int
-		CreateScenario         func(childComplexity int, input model.ScenarioInput) int
-		EndSession             func(childComplexity int, sessionID uuid.UUID) int
-		ExportMyData           func(childComplexity int) int
-		Logout                 func(childComplexity int) int
-		OverrideScore          func(childComplexity int, input model.OverrideScoreInput) int
-		PublishCharacter       func(childComplexity int, lineageID uuid.UUID, version int) int
-		PublishLLMProfile      func(childComplexity int, lineageID uuid.UUID, version int) int
-		PublishRubric          func(childComplexity int, lineageID uuid.UUID, version int) int
-		PublishScenario        func(childComplexity int, lineageID uuid.UUID, version int) int
-		RefreshToken           func(childComplexity int, input model.RefreshTokenInput) int
-		RequestAccountDeletion func(childComplexity int) int
-		RequestDeviceChallenge func(childComplexity int, input model.DeviceChallengeInput) int
-		RequestLoginCode       func(childComplexity int, input model.RequestLoginCodeInput) int
-		RevokeDevice           func(childComplexity int, deviceID uuid.UUID) int
-		StartSession           func(childComplexity int, input model.StartSessionInput) int
-		SubmitTurn             func(childComplexity int, input model.SubmitTurnInput) int
-		TestLLMProfile         func(childComplexity int, input model.TestLLMProfileInput) int
-		UpdateCharacter        func(childComplexity int, lineageID uuid.UUID, input model.CharacterInput) int
-		UpdateLLMProfile       func(childComplexity int, lineageID uuid.UUID, input model.LLMProfileInput) int
-		UpdateProfile          func(childComplexity int, input model.UpdateProfileInput) int
-		UpdateRubric           func(childComplexity int, lineageID uuid.UUID, input model.RubricInput) int
-		UpdateScenario         func(childComplexity int, lineageID uuid.UUID, input model.ScenarioInput) int
-		VerifyLoginCode        func(childComplexity int, input model.VerifyLoginCodeInput) int
-		VerifyMagicLink        func(childComplexity int, input model.VerifyMagicLinkInput) int
+		CancelAccountDeletion        func(childComplexity int) int
+		CreateCharacter              func(childComplexity int, input model.CharacterInput) int
+		CreateLLMProfile             func(childComplexity int, input model.LLMProfileInput) int
+		CreateRubric                 func(childComplexity int, input model.RubricInput) int
+		CreateScenario               func(childComplexity int, input model.ScenarioInput) int
+		EndSession                   func(childComplexity int, sessionID uuid.UUID) int
+		ExportMyData                 func(childComplexity int) int
+		Logout                       func(childComplexity int) int
+		OverrideScore                func(childComplexity int, input model.OverrideScoreInput) int
+		PublishCharacter             func(childComplexity int, lineageID uuid.UUID, version int) int
+		PublishLLMProfile            func(childComplexity int, lineageID uuid.UUID, version int) int
+		PublishRubric                func(childComplexity int, lineageID uuid.UUID, version int) int
+		PublishScenario              func(childComplexity int, lineageID uuid.UUID, version int) int
+		RefreshToken                 func(childComplexity int, input model.RefreshTokenInput) int
+		Register                     func(childComplexity int, input model.RegisterInput) int
+		RequestAccountDeletion       func(childComplexity int) int
+		RequestDeviceChallenge       func(childComplexity int, input model.DeviceChallengeInput) int
+		RequestEmailVerificationCode func(childComplexity int, input model.RequestEmailVerificationCodeInput) int
+		RequestLoginCode             func(childComplexity int, input model.RequestLoginCodeInput) int
+		RevokeDevice                 func(childComplexity int, deviceID uuid.UUID) int
+		StartSession                 func(childComplexity int, input model.StartSessionInput) int
+		SubmitTurn                   func(childComplexity int, input model.SubmitTurnInput) int
+		TestLLMProfile               func(childComplexity int, input model.TestLLMProfileInput) int
+		UpdateCharacter              func(childComplexity int, lineageID uuid.UUID, input model.CharacterInput) int
+		UpdateLLMProfile             func(childComplexity int, lineageID uuid.UUID, input model.LLMProfileInput) int
+		UpdateProfile                func(childComplexity int, input model.UpdateProfileInput) int
+		UpdateRubric                 func(childComplexity int, lineageID uuid.UUID, input model.RubricInput) int
+		UpdateScenario               func(childComplexity int, lineageID uuid.UUID, input model.ScenarioInput) int
+		VerifyEmail                  func(childComplexity int, input model.VerifyEmailInput) int
+		VerifyLoginCode              func(childComplexity int, input model.VerifyLoginCodeInput) int
+		VerifyMagicLink              func(childComplexity int, input model.VerifyMagicLinkInput) int
 	}
 
 	PairedDevice struct {
@@ -220,6 +223,19 @@ type ComplexityRoot struct {
 		Scenario       func(childComplexity int, lineageID uuid.UUID, version *int) int
 		Scenarios      func(childComplexity int, publishedOnly *bool) int
 		Session        func(childComplexity int, id uuid.UUID) int
+	}
+
+	RegisterPayload struct {
+		Email              func(childComplexity int) int
+		ExpiresInSeconds   func(childComplexity int) int
+		Registered         func(childComplexity int) int
+		ResendAfterSeconds func(childComplexity int) int
+	}
+
+	RequestEmailVerificationCodePayload struct {
+		ExpiresInSeconds   func(childComplexity int) int
+		ResendAfterSeconds func(childComplexity int) int
+		Sent               func(childComplexity int) int
 	}
 
 	RequestLoginCodePayload struct {
@@ -359,6 +375,11 @@ type ComplexityRoot struct {
 		Permissions         func(childComplexity int) int
 		Status              func(childComplexity int) int
 	}
+
+	VerifyEmailPayload struct {
+		Verified   func(childComplexity int) int
+		VerifiedAt func(childComplexity int) int
+	}
 }
 
 // endregion ***************************** api!.gotpl *****************************
@@ -366,6 +387,9 @@ type ComplexityRoot struct {
 // region    ************************** generated!.gotpl **************************
 
 type MutationResolver interface {
+	Register(ctx context.Context, input model.RegisterInput) (*model.RegisterPayload, error)
+	RequestEmailVerificationCode(ctx context.Context, input model.RequestEmailVerificationCodeInput) (*model.RequestEmailVerificationCodePayload, error)
+	VerifyEmail(ctx context.Context, input model.VerifyEmailInput) (*model.VerifyEmailPayload, error)
 	RequestLoginCode(ctx context.Context, input model.RequestLoginCodeInput) (*model.RequestLoginCodePayload, error)
 	VerifyLoginCode(ctx context.Context, input model.VerifyLoginCodeInput) (*model.AuthPayload, error)
 	VerifyMagicLink(ctx context.Context, input model.VerifyMagicLinkInput) (*model.AuthPayload, error)
@@ -1105,6 +1129,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RefreshToken(childComplexity, args["input"].(model.RefreshTokenInput)), true
+	case "Mutation.register":
+		if e.ComplexityRoot.Mutation.Register == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_register_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.Register(childComplexity, args["input"].(model.RegisterInput)), true
 	case "Mutation.requestAccountDeletion":
 		if e.ComplexityRoot.Mutation.RequestAccountDeletion == nil {
 			break
@@ -1122,6 +1157,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RequestDeviceChallenge(childComplexity, args["input"].(model.DeviceChallengeInput)), true
+	case "Mutation.requestEmailVerificationCode":
+		if e.ComplexityRoot.Mutation.RequestEmailVerificationCode == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_requestEmailVerificationCode_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RequestEmailVerificationCode(childComplexity, args["input"].(model.RequestEmailVerificationCodeInput)), true
 	case "Mutation.requestLoginCode":
 		if e.ComplexityRoot.Mutation.RequestLoginCode == nil {
 			break
@@ -1232,6 +1278,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UpdateScenario(childComplexity, args["lineageId"].(uuid.UUID), args["input"].(model.ScenarioInput)), true
+	case "Mutation.verifyEmail":
+		if e.ComplexityRoot.Mutation.VerifyEmail == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_verifyEmail_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.VerifyEmail(childComplexity, args["input"].(model.VerifyEmailInput)), true
 	case "Mutation.verifyLoginCode":
 		if e.ComplexityRoot.Mutation.VerifyLoginCode == nil {
 			break
@@ -1426,6 +1483,50 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Session(childComplexity, args["id"].(uuid.UUID)), true
+
+	case "RegisterPayload.email":
+		if e.ComplexityRoot.RegisterPayload.Email == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RegisterPayload.Email(childComplexity), true
+	case "RegisterPayload.expiresInSeconds":
+		if e.ComplexityRoot.RegisterPayload.ExpiresInSeconds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RegisterPayload.ExpiresInSeconds(childComplexity), true
+	case "RegisterPayload.registered":
+		if e.ComplexityRoot.RegisterPayload.Registered == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RegisterPayload.Registered(childComplexity), true
+	case "RegisterPayload.resendAfterSeconds":
+		if e.ComplexityRoot.RegisterPayload.ResendAfterSeconds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RegisterPayload.ResendAfterSeconds(childComplexity), true
+
+	case "RequestEmailVerificationCodePayload.expiresInSeconds":
+		if e.ComplexityRoot.RequestEmailVerificationCodePayload.ExpiresInSeconds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RequestEmailVerificationCodePayload.ExpiresInSeconds(childComplexity), true
+	case "RequestEmailVerificationCodePayload.resendAfterSeconds":
+		if e.ComplexityRoot.RequestEmailVerificationCodePayload.ResendAfterSeconds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RequestEmailVerificationCodePayload.ResendAfterSeconds(childComplexity), true
+	case "RequestEmailVerificationCodePayload.sent":
+		if e.ComplexityRoot.RequestEmailVerificationCodePayload.Sent == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RequestEmailVerificationCodePayload.Sent(childComplexity), true
 
 	case "RequestLoginCodePayload.expiresInSeconds":
 		if e.ComplexityRoot.RequestLoginCodePayload.ExpiresInSeconds == nil {
@@ -2039,6 +2140,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.User.Status(childComplexity), true
 
+	case "VerifyEmailPayload.verified":
+		if e.ComplexityRoot.VerifyEmailPayload.Verified == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VerifyEmailPayload.Verified(childComplexity), true
+	case "VerifyEmailPayload.verifiedAt":
+		if e.ComplexityRoot.VerifyEmailPayload.VerifiedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VerifyEmailPayload.VerifiedAt(childComplexity), true
+
 	}
 	return 0, false
 }
@@ -2054,6 +2168,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputLLMProfileInput,
 		ec.unmarshalInputOverrideScoreInput,
 		ec.unmarshalInputRefreshTokenInput,
+		ec.unmarshalInputRegisterInput,
+		ec.unmarshalInputRequestEmailVerificationCodeInput,
 		ec.unmarshalInputRequestLoginCodeInput,
 		ec.unmarshalInputRubricInput,
 		ec.unmarshalInputScenarioInput,
@@ -2061,6 +2177,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputSubmitTurnInput,
 		ec.unmarshalInputTestLLMProfileInput,
 		ec.unmarshalInputUpdateProfileInput,
+		ec.unmarshalInputVerifyEmailInput,
 		ec.unmarshalInputVerifyLoginCodeInput,
 		ec.unmarshalInputVerifyMagicLinkInput,
 	)
@@ -2432,6 +2549,32 @@ func (ec *executionContext) childFields_PairedDevice(ctx context.Context, field 
 	return nil, fmt.Errorf("no field named %q was found under type PairedDevice", field.Name)
 }
 
+func (ec *executionContext) childFields_RegisterPayload(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "registered":
+		return ec.fieldContext_RegisterPayload_registered(ctx, field)
+	case "email":
+		return ec.fieldContext_RegisterPayload_email(ctx, field)
+	case "expiresInSeconds":
+		return ec.fieldContext_RegisterPayload_expiresInSeconds(ctx, field)
+	case "resendAfterSeconds":
+		return ec.fieldContext_RegisterPayload_resendAfterSeconds(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type RegisterPayload", field.Name)
+}
+
+func (ec *executionContext) childFields_RequestEmailVerificationCodePayload(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "sent":
+		return ec.fieldContext_RequestEmailVerificationCodePayload_sent(ctx, field)
+	case "expiresInSeconds":
+		return ec.fieldContext_RequestEmailVerificationCodePayload_expiresInSeconds(ctx, field)
+	case "resendAfterSeconds":
+		return ec.fieldContext_RequestEmailVerificationCodePayload_resendAfterSeconds(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type RequestEmailVerificationCodePayload", field.Name)
+}
+
 func (ec *executionContext) childFields_RequestLoginCodePayload(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "sent":
@@ -2698,6 +2841,16 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_createdAt(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
+}
+
+func (ec *executionContext) childFields_VerifyEmailPayload(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "verified":
+		return ec.fieldContext_VerifyEmailPayload_verified(ctx, field)
+	case "verifiedAt":
+		return ec.fieldContext_VerifyEmailPayload_verifiedAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type VerifyEmailPayload", field.Name)
 }
 
 func (ec *executionContext) childFields___Directive(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -3016,12 +3169,40 @@ func (ec *executionContext) field_Mutation_refreshToken_args(ctx context.Context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_register_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.RegisterInput, error) {
+			return ec.unmarshalNRegisterInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRegisterInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_requestDeviceChallenge_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DeviceChallengeInput, error) {
 			return ec.unmarshalNDeviceChallengeInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐDeviceChallengeInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_requestEmailVerificationCode_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.RequestEmailVerificationCodeInput, error) {
+			return ec.unmarshalNRequestEmailVerificationCodeInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRequestEmailVerificationCodeInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -3199,6 +3380,20 @@ func (ec *executionContext) field_Mutation_updateScenario_args(ctx context.Conte
 		return nil, err
 	}
 	args["input"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_verifyEmail_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.VerifyEmailInput, error) {
+			return ec.unmarshalNVerifyEmailInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐVerifyEmailInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -5558,6 +5753,138 @@ func (ec *executionContext) _LLMProfile_createdAt(ctx context.Context, field gra
 }
 func (ec *executionContext) fieldContext_LLMProfile_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("LLMProfile", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _Mutation_register(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_register(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().Register(ctx, fc.Args["input"].(model.RegisterInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.RegisterPayload) graphql.Marshaler {
+			return ec.marshalNRegisterPayload2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRegisterPayload(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_register(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_RegisterPayload(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_register_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_requestEmailVerificationCode(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_requestEmailVerificationCode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RequestEmailVerificationCode(ctx, fc.Args["input"].(model.RequestEmailVerificationCodeInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.RequestEmailVerificationCodePayload) graphql.Marshaler {
+			return ec.marshalNRequestEmailVerificationCodePayload2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRequestEmailVerificationCodePayload(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_requestEmailVerificationCode(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_RequestEmailVerificationCodePayload(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_requestEmailVerificationCode_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_verifyEmail(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_verifyEmail(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().VerifyEmail(ctx, fc.Args["input"].(model.VerifyEmailInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.VerifyEmailPayload) graphql.Marshaler {
+			return ec.marshalNVerifyEmailPayload2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐVerifyEmailPayload(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_verifyEmail(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_VerifyEmailPayload(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_verifyEmail_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _Mutation_requestLoginCode(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
@@ -8225,6 +8552,167 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _RegisterPayload_registered(ctx context.Context, field graphql.CollectedField, obj *model.RegisterPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RegisterPayload_registered(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Registered, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RegisterPayload_registered(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RegisterPayload", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _RegisterPayload_email(ctx context.Context, field graphql.CollectedField, obj *model.RegisterPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RegisterPayload_email(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Email, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RegisterPayload_email(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RegisterPayload", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _RegisterPayload_expiresInSeconds(ctx context.Context, field graphql.CollectedField, obj *model.RegisterPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RegisterPayload_expiresInSeconds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresInSeconds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RegisterPayload_expiresInSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RegisterPayload", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _RegisterPayload_resendAfterSeconds(ctx context.Context, field graphql.CollectedField, obj *model.RegisterPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RegisterPayload_resendAfterSeconds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResendAfterSeconds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RegisterPayload_resendAfterSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RegisterPayload", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _RequestEmailVerificationCodePayload_sent(ctx context.Context, field graphql.CollectedField, obj *model.RequestEmailVerificationCodePayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RequestEmailVerificationCodePayload_sent(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Sent, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RequestEmailVerificationCodePayload_sent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RequestEmailVerificationCodePayload", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _RequestEmailVerificationCodePayload_expiresInSeconds(ctx context.Context, field graphql.CollectedField, obj *model.RequestEmailVerificationCodePayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RequestEmailVerificationCodePayload_expiresInSeconds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresInSeconds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RequestEmailVerificationCodePayload_expiresInSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RequestEmailVerificationCodePayload", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _RequestEmailVerificationCodePayload_resendAfterSeconds(ctx context.Context, field graphql.CollectedField, obj *model.RequestEmailVerificationCodePayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RequestEmailVerificationCodePayload_resendAfterSeconds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResendAfterSeconds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RequestEmailVerificationCodePayload_resendAfterSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RequestEmailVerificationCodePayload", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _RequestLoginCodePayload_sent(ctx context.Context, field graphql.CollectedField, obj *model.RequestLoginCodePayload) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -9816,7 +10304,25 @@ func (ec *executionContext) _Session_score(ctx context.Context, field graphql.Co
 		func(ctx context.Context) (any, error) {
 			return ec.Resolvers.Session().Score(ctx, obj)
 		},
-		nil,
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				requires, err := ec.unmarshalNString2string(ctx, "score:read")
+				if err != nil {
+					var zeroVal *model.Score
+					return zeroVal, err
+				}
+				if ec.Directives.Permission == nil {
+					var zeroVal *model.Score
+					return zeroVal, errors.New("directive permission is not implemented")
+				}
+				return ec.Directives.Permission(ctx, obj, directive0, requires)
+			}
+
+			next = directive1
+			return next
+		},
 		func(ctx context.Context, selections ast.SelectionSet, v *model.Score) graphql.Marshaler {
 			return ec.marshalOScore2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐScore(ctx, selections, v)
 		},
@@ -10041,7 +10547,25 @@ func (ec *executionContext) _SessionEvent_score(ctx context.Context, field graph
 		func(ctx context.Context) (any, error) {
 			return obj.Score, nil
 		},
-		nil,
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				requires, err := ec.unmarshalNString2string(ctx, "score:read")
+				if err != nil {
+					var zeroVal *model.Score
+					return zeroVal, err
+				}
+				if ec.Directives.Permission == nil {
+					var zeroVal *model.Score
+					return zeroVal, errors.New("directive permission is not implemented")
+				}
+				return ec.Directives.Permission(ctx, obj, directive0, requires)
+			}
+
+			next = directive1
+			return next
+		},
 		func(ctx context.Context, selections ast.SelectionSet, v *model.Score) graphql.Marshaler {
 			return ec.marshalOScore2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐScore(ctx, selections, v)
 		},
@@ -10669,6 +11193,52 @@ func (ec *executionContext) _User_createdAt(ctx context.Context, field graphql.C
 }
 func (ec *executionContext) fieldContext_User_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("User", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _VerifyEmailPayload_verified(ctx context.Context, field graphql.CollectedField, obj *model.VerifyEmailPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_VerifyEmailPayload_verified(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Verified, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_VerifyEmailPayload_verified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("VerifyEmailPayload", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _VerifyEmailPayload_verifiedAt(ctx context.Context, field graphql.CollectedField, obj *model.VerifyEmailPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_VerifyEmailPayload_verifiedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.VerifiedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_VerifyEmailPayload_verifiedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("VerifyEmailPayload", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) ___Directive_name(ctx context.Context, field graphql.CollectedField, obj *introspection.Directive) (ret graphql.Marshaler) {
@@ -12122,6 +12692,80 @@ func (ec *executionContext) unmarshalInputRefreshTokenInput(ctx context.Context,
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputRegisterInput(ctx context.Context, obj any) (model.RegisterInput, error) {
+	var it model.RegisterInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"email", "firstName", "lastName"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "email":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("email"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Email = data
+		case "firstName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("firstName"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FirstName = data
+		case "lastName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("lastName"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LastName = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputRequestEmailVerificationCodeInput(ctx context.Context, obj any) (model.RequestEmailVerificationCodeInput, error) {
+	var it model.RequestEmailVerificationCodeInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"email"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "email":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("email"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Email = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputRequestLoginCodeInput(ctx context.Context, obj any) (model.RequestLoginCodeInput, error) {
 	var it model.RequestLoginCodeInput
 	if obj == nil {
@@ -12309,7 +12953,7 @@ func (ec *executionContext) unmarshalInputSubmitTurnInput(ctx context.Context, o
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"sessionId", "text"}
+	fieldsInOrder := [...]string{"sessionId", "requestId", "text"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -12323,6 +12967,13 @@ func (ec *executionContext) unmarshalInputSubmitTurnInput(ctx context.Context, o
 				return it, err
 			}
 			it.SessionID = data
+		case "requestId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("requestId"))
+			data, err := ec.unmarshalOUUID2ᚖgithubᚗcomᚋgoogleᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RequestID = data
 		case "text":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("text"))
 			data, err := ec.unmarshalNString2string(ctx, v)
@@ -12404,6 +13055,43 @@ func (ec *executionContext) unmarshalInputUpdateProfileInput(ctx context.Context
 				return it, err
 			}
 			it.LastName = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputVerifyEmailInput(ctx context.Context, obj any) (model.VerifyEmailInput, error) {
+	var it model.VerifyEmailInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"email", "code"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "email":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("email"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Email = data
+		case "code":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("code"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Code = data
 		}
 	}
 	return it, nil
@@ -13358,6 +14046,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Mutation")
+		case "register":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_register(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "requestEmailVerificationCode":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_requestEmailVerificationCode(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "verifyEmail":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_verifyEmail(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "requestLoginCode":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_requestLoginCode(ctx, field)
@@ -13991,6 +14700,107 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			})
 			if out.Values[i] == graphql.RequiredNull {
 				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var registerPayloadImplementors = []string{"RegisterPayload"}
+
+func (ec *executionContext) _RegisterPayload(ctx context.Context, sel ast.SelectionSet, obj *model.RegisterPayload) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, registerPayloadImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RegisterPayload")
+		case "registered":
+			out.Values[i] = ec._RegisterPayload_registered(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "email":
+			out.Values[i] = ec._RegisterPayload_email(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expiresInSeconds":
+			out.Values[i] = ec._RegisterPayload_expiresInSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resendAfterSeconds":
+			out.Values[i] = ec._RegisterPayload_resendAfterSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var requestEmailVerificationCodePayloadImplementors = []string{"RequestEmailVerificationCodePayload"}
+
+func (ec *executionContext) _RequestEmailVerificationCodePayload(ctx context.Context, sel ast.SelectionSet, obj *model.RequestEmailVerificationCodePayload) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, requestEmailVerificationCodePayloadImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RequestEmailVerificationCodePayload")
+		case "sent":
+			out.Values[i] = ec._RequestEmailVerificationCodePayload_sent(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expiresInSeconds":
+			out.Values[i] = ec._RequestEmailVerificationCodePayload_expiresInSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resendAfterSeconds":
+			out.Values[i] = ec._RequestEmailVerificationCodePayload_resendAfterSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -14985,6 +15795,49 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 	return out
 }
 
+var verifyEmailPayloadImplementors = []string{"VerifyEmailPayload"}
+
+func (ec *executionContext) _VerifyEmailPayload(ctx context.Context, sel ast.SelectionSet, obj *model.VerifyEmailPayload) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, verifyEmailPayloadImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("VerifyEmailPayload")
+		case "verified":
+			out.Values[i] = ec._VerifyEmailPayload_verified(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "verifiedAt":
+			out.Values[i] = ec._VerifyEmailPayload_verifiedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var __DirectiveImplementors = []string{"__Directive"}
 
 func (ec *executionContext) ___Directive(ctx context.Context, sel ast.SelectionSet, obj *introspection.Directive) graphql.Marshaler {
@@ -15747,6 +16600,36 @@ func (ec *executionContext) unmarshalNRefreshTokenInput2githubᚗcomᚋmasterfab
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNRegisterInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRegisterInput(ctx context.Context, v any) (model.RegisterInput, error) {
+	res, err := ec.unmarshalInputRegisterInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRegisterPayload2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRegisterPayload(ctx context.Context, sel ast.SelectionSet, v *model.RegisterPayload) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RegisterPayload(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNRequestEmailVerificationCodeInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRequestEmailVerificationCodeInput(ctx context.Context, v any) (model.RequestEmailVerificationCodeInput, error) {
+	res, err := ec.unmarshalInputRequestEmailVerificationCodeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRequestEmailVerificationCodePayload2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRequestEmailVerificationCodePayload(ctx context.Context, sel ast.SelectionSet, v *model.RequestEmailVerificationCodePayload) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RequestEmailVerificationCodePayload(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNRequestLoginCodeInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐRequestLoginCodeInput(ctx context.Context, v any) (model.RequestLoginCodeInput, error) {
 	res, err := ec.unmarshalInputRequestLoginCodeInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -16103,6 +16986,21 @@ func (ec *executionContext) unmarshalNUserStatus2githubᚗcomᚋmasterfabricᚑg
 
 func (ec *executionContext) marshalNUserStatus2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐUserStatus(ctx context.Context, sel ast.SelectionSet, v model.UserStatus) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) unmarshalNVerifyEmailInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐVerifyEmailInput(ctx context.Context, v any) (model.VerifyEmailInput, error) {
+	res, err := ec.unmarshalInputVerifyEmailInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNVerifyEmailPayload2ᚖgithubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐVerifyEmailPayload(ctx context.Context, sel ast.SelectionSet, v *model.VerifyEmailPayload) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._VerifyEmailPayload(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNVerifyLoginCodeInput2githubᚗcomᚋmasterfabricᚑgoᚋmasterfabricᚋgraphᚋmodelᚐVerifyLoginCodeInput(ctx context.Context, v any) (model.VerifyLoginCodeInput, error) {

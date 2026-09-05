@@ -1,15 +1,15 @@
 // Package template builds the transactional messages the auth flow sends.
 //
-// The templates are deliberately plain: no links, no images, no tracking
-// pixels. A six-digit code that lands in a spam folder breaks the only door
-// into the product, so every element that raises a spam score is left out. The
-// code never appears in the subject line either — filters score that pattern
-// poorly, and subjects leak into lock-screen notifications.
+// HTML bodies share a branded card shell with an embedded Prova mark (data URI
+// — no public CDN). External http(s) links and tracking pixels stay out, except
+// for the optional single magic-link <a> on login codes. The six-digit code
+// never appears in the subject line: filters score that pattern poorly, and
+// subjects leak into lock-screen notifications.
 package template
 
 import (
-	"bytes"
 	"fmt"
+	"html"
 	"html/template"
 	"strings"
 	"time"
@@ -24,27 +24,12 @@ const (
 	subjectNewDevice = "Prova hesabınıza yeni bir cihaz eklendi"
 )
 
-var loginCodeHTML = template.Must(template.New("login_code").Parse(`<!doctype html>
-<html lang="tr">
-<body style="margin:0;padding:24px;background:#ffffff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111111;">
-<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Prova'ya giriş yapmak için doğrulama kodunuz:</p>
-<p style="font-size:34px;font-weight:700;letter-spacing:6px;margin:0 0 20px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{{.Code}}</p>
-{{if .MagicLink}}<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Kodu yazmak istemiyorsanız doğrudan bu bağlantıyla giriş yapabilirsiniz:</p>
-<p style="font-size:15px;line-height:1.6;margin:0 0 20px;word-break:break-all;"><a href="{{.MagicLink}}" style="color:#1a4fd6;">{{.MagicLink}}</a></p>{{end}}
-<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Kod {{if .MagicLink}}ve bağlantı {{end}}{{.Minutes}} dakika geçerlidir ve yalnızca bir kez kullanılabilir.</p>
-<p style="font-size:15px;line-height:1.6;margin:0;color:#555555;">Bu girişi siz talep etmediyseniz bu iletiyi yok sayabilirsiniz. Kodu hiç kimseyle paylaşmayın; Prova ekibi sizden bu kodu asla istemez.</p>
-</body>
-</html>`))
-
-var newDeviceHTML = template.Must(template.New("new_device").Parse(`<!doctype html>
-<html lang="tr">
-<body style="margin:0;padding:24px;background:#ffffff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111111;">
-<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Prova hesabınıza yeni bir cihaz eşleştirildi.</p>
-<p style="font-size:15px;line-height:1.6;margin:0 0 8px;"><strong>Cihaz:</strong> {{.DeviceName}}</p>
-<p style="font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>Tarih:</strong> {{.OccurredAt}}</p>
-<p style="font-size:15px;line-height:1.6;margin:0;color:#555555;">Bu cihazı siz eşleştirmediyseniz Prova uygulamasındaki cihaz listesinden yetkisini iptal edin.</p>
-</body>
-</html>`))
+const (
+	titleLoginCode  = "Giriş doğrulama kodu"
+	titleNewDevice  = "Yeni cihaz eşleştirildi"
+	footerLoginCode = "Bu girişi siz talep etmediyseniz bu iletiyi yok sayabilirsiniz. Kodu hiç kimseyle paylaşmayın; Prova ekibi sizden bu kodu asla istemez."
+	footerNewDevice = "Bu cihazı siz eşleştirmediyseniz Prova uygulamasındaki cihaz listesinden yetkisini iptal edin."
+)
 
 // LoginCode builds the one-time code message.
 //
@@ -58,11 +43,23 @@ func LoginCode(to model.Address, code string, ttl time.Duration, magicLink strin
 		minutes = 1
 	}
 
-	data := struct {
-		Code      string
-		Minutes   int
-		MagicLink string
-	}{Code: code, Minutes: minutes, MagicLink: magicLink}
+	var validity string
+	if magicLink != "" {
+		validity = fmt.Sprintf("Kod ve bağlantı %d dakika geçerlidir ve yalnızca bir kez kullanılabilir.", minutes)
+	} else {
+		validity = fmt.Sprintf("Kod %d dakika geçerlidir ve yalnızca bir kez kullanılabilir.", minutes)
+	}
+
+	htmlBody := renderShell(
+		titleLoginCode,
+		footerLoginCode,
+		bodyHTML(
+			bodyParagraph("Prova'ya giriş yapmak için doğrulama kodunuz:"),
+			otpPanel(code),
+			bodyParagraph(validity),
+		),
+		magicLink,
+	)
 
 	lines := []string{
 		"Prova'ya giriş yapmak için doğrulama kodunuz:",
@@ -92,7 +89,7 @@ func LoginCode(to model.Address, code string, ttl time.Duration, magicLink strin
 		To:       to,
 		Subject:  subjectLoginCode,
 		TextBody: strings.Join(lines, "\n"),
-		HTMLBody: render(loginCodeHTML, data),
+		HTMLBody: htmlBody,
 		Tags:     map[string]string{"category": "login_code"},
 	}
 }
@@ -106,10 +103,22 @@ func NewDevice(to model.Address, deviceName string, occurredAt time.Time) model.
 	}
 	stamp := occurredAt.UTC().Format("02.01.2006 15:04 UTC")
 
-	data := struct {
-		DeviceName string
-		OccurredAt string
-	}{DeviceName: deviceName, OccurredAt: stamp}
+	detail := template.HTML(
+		`<p style="margin:0 0 8px;font-family:` + fontBody + `;font-size:15px;line-height:1.6;color:` + colorInk + `;"><strong>Cihaz:</strong> ` +
+			html.EscapeString(deviceName) + `</p>` +
+			`<p style="margin:0 0 16px;font-family:` + fontBody + `;font-size:15px;line-height:1.6;color:` + colorInk + `;"><strong>Tarih:</strong> ` +
+			html.EscapeString(stamp) + `</p>`,
+	)
+
+	htmlBody := renderShell(
+		titleNewDevice,
+		footerNewDevice,
+		bodyHTML(
+			bodyParagraph("Prova hesabınıza yeni bir cihaz eşleştirildi."),
+			detail,
+		),
+		"",
+	)
 
 	text := strings.Join([]string{
 		"Prova hesabınıza yeni bir cihaz eşleştirildi.",
@@ -124,18 +133,7 @@ func NewDevice(to model.Address, deviceName string, occurredAt time.Time) model.
 		To:       to,
 		Subject:  subjectNewDevice,
 		TextBody: text,
-		HTMLBody: render(newDeviceHTML, data),
+		HTMLBody: htmlBody,
 		Tags:     map[string]string{"category": "new_device"},
 	}
-}
-
-// render executes a parsed template. The templates are compile-time constants
-// with escaped data, so execution cannot fail for reasons a caller could act
-// on; an empty HTML body still leaves the text alternative intact.
-func render(tmpl *template.Template, data any) string {
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return ""
-	}
-	return buf.String()
 }

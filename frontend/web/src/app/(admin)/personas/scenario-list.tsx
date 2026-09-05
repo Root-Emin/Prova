@@ -55,7 +55,7 @@ export function ScenarioList({
                       selected ? "text-primary" : "text-foreground"
                     )}
                   >
-                    {scenario.name}
+                    {scenario.name || "Adsız senaryo"}
                   </span>
                   <span
                     className={cn(
@@ -69,8 +69,11 @@ export function ScenarioList({
                   </span>
                 </span>
                 <span className="prova-meta mt-1 block normal-case">
-                  {scenario.sector} · {scenario.criteria.length} kriter ·{" "}
-                  {scenario.lastEditedAt}
+                  {[
+                    scenario.sector || "sektör yok",
+                    `${scenario.criteria.length} kriter`,
+                    scenario.lastEditedAt,
+                  ].join(" · ")}
                 </span>
               </button>
             </li>

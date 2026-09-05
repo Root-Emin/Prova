@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
+	provaService "github.com/masterfabric-go/masterfabric/internal/application/prova/service"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/http/handler/health"
 	"github.com/masterfabric-go/masterfabric/internal/shared/middleware"
 )
@@ -33,6 +34,9 @@ type Dependencies struct {
 
 	CORSAllowedOrigins []string
 	MaxBodyBytes       int64
+	// PersonaClient is the internal AI-01 port. It is injected at the
+	// application root without exposing provider/model details in GraphQL.
+	PersonaClient provaService.PersonaInferenceClient
 
 	// GraphQLHandler, tüm istemci API yüzeyi. Nil ise /graphql mount edilmez
 	// ve sunucu yalnızca sağlık uçlarıyla ayakta kalır.

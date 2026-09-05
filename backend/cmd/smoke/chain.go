@@ -30,7 +30,13 @@ func (r *smokeRunner) run() error {
 		return fmt.Errorf("anahtar çifti üretilemedi: %w", err)
 	}
 
-	// --- 1. Kod iste ---
+	// --- 1. Kayıt ve ayrı e-posta doğrulaması ---
+	if err := r.registerAndVerify(email); err != nil {
+		return fmt.Errorf("kayıt/e-posta doğrulama başarısız: %w", err)
+	}
+	r.record("kayıt ve e-posta doğrulama", email)
+
+	// --- 2. Giriş kodu iste ---
 	if err := r.requestCode(email); err != nil {
 		return fmt.Errorf("kod istenemedi: %w", err)
 	}
@@ -50,7 +56,7 @@ func (r *smokeRunner) run() error {
 	r.record("kod istendi", fmt.Sprintf("%s (%s)", email, linkNote))
 	_ = link
 
-	// --- 2. Doğrula ve cihaz kaydet ---
+	// --- 3. Giriş yap ve cihaz kaydet ---
 	auth, err := r.verifyCode(email, code, &deviceInput{
 		Fingerprint: fingerprint,
 		Name:        "Duman testi cihazı",
@@ -66,7 +72,7 @@ func (r *smokeRunner) run() error {
 	r.record("kod doğrulandı, cihaz kaydedildi",
 		fmt.Sprintf("platform %s, yeni=%t", auth.Device.Platform, auth.Device.IsNew))
 
-	// --- 3. Cihaz challenge'ı ile ikinci giriş ---
+	// --- 4. Cihaz challenge'ı ile ikinci giriş ---
 	challenge, err := r.deviceChallenge(email, fingerprint)
 	if err != nil {
 		return fmt.Errorf("challenge alınamadı: %w", err)

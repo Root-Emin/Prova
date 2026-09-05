@@ -20,9 +20,11 @@ import (
 	provaAppService "github.com/masterfabric-go/masterfabric/internal/application/prova/service"
 	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
 	auditService "github.com/masterfabric-go/masterfabric/internal/domain/audit/service"
+	iamRepo "github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	notify "github.com/masterfabric-go/masterfabric/internal/domain/notification/service"
 	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
+	infraAI "github.com/masterfabric-go/masterfabric/internal/infrastructure/ai"
 	infraAudit "github.com/masterfabric-go/masterfabric/internal/infrastructure/audit"
 	infraAuth "github.com/masterfabric-go/masterfabric/internal/infrastructure/auth"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/email"
@@ -36,6 +38,7 @@ import (
 	pgIam "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/iam"
 	pgTenant "github.com/masterfabric-go/masterfabric/internal/infrastructure/postgres/tenant"
 	"github.com/masterfabric-go/masterfabric/internal/infrastructure/realtime"
+	redisIam "github.com/masterfabric-go/masterfabric/internal/infrastructure/redis/iam"
 	"github.com/masterfabric-go/masterfabric/internal/shared/cache"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 	"github.com/masterfabric-go/masterfabric/internal/shared/database"
@@ -119,6 +122,11 @@ func run() error {
 		defer redisClient.Close()
 		log.Info("connected to redis")
 	}
+	if cfg.IsProduction() && redisClient == nil {
+		// Verification challenges and their attempt counters are credentials;
+		// production must not silently fall back to PostgreSQL or process memory.
+		return fmt.Errorf("redis is required in production for email verification state")
+	}
 
 	// Olay veri yolu her zaman süreç içidir. Kafka bağımlılığı Prova'nın
 	// ihtiyacı olmayan bir dağıtık kurulum getiriyordu; kod repoda duruyor ama
@@ -190,12 +198,14 @@ func buildDependencies(
 	// stopBackgroundJobs, zamanlanmış işleri kapanışta durdurur.
 	var stopBackgroundJobs func()
 
+	personaClient := infraAI.NewPersonaClient(cfg.AIService.URL, cfg.AIService.Timeout)
 	deps := router.Dependencies{
 		Logger:             log,
 		DB:                 db,
 		Redis:              redisClient,
 		CORSAllowedOrigins: cfg.Server.CORSAllowedOrigins,
 		MaxBodyBytes:       cfg.Server.MaxBodyBytes,
+		PersonaClient:      personaClient,
 	}
 
 	if db == nil {
@@ -206,7 +216,15 @@ func buildDependencies(
 	// --- Depolar ---
 	userRepo := pgIam.NewUserRepo(db)
 	roleRepo := pgIam.NewRoleRepo(db)
-	loginCodeRepo := pgIam.NewLoginCodeRepo(db)
+	var loginCodeRepo iamRepo.LoginCodeRepository = pgIam.NewLoginCodeRepo(db)
+	var emailVerificationRepo iamRepo.EmailVerificationRepository
+	if redisClient != nil {
+		// Passwordless login can use Redis when available while retaining its
+		// PostgreSQL compatibility path. E-mail verification below has no such
+		// fallback: its only adapter is Redis.
+		loginCodeRepo = redisIam.NewLoginCodeRepo(redisClient)
+		emailVerificationRepo = redisIam.NewEmailVerificationRepo(redisClient)
+	}
 	deviceRepo := pgIam.NewDeviceRepo(db)
 	orgUserRepo := pgIam.NewOrgUserRepo(db)
 	orgRepo := pgTenant.NewOrgRepo(db)
@@ -225,10 +243,17 @@ func buildDependencies(
 		log.Error("parolasız kimlik doğrulama devre dışı", "error", err)
 		return deps, noop
 	}
+	emailVerificationCodeService, err := infraAuth.NewEmailVerificationCodeService(cfg.EmailVerification)
+	if err != nil {
+		log.Error("e-posta doğrulama devre dışı", "error", err)
+		return deps, noop
+	}
 
 	var limiter ratelimit.Limiter
+	var emailVerificationLimiter ratelimit.Limiter
 	if redisClient != nil {
 		limiter = ratelimit.NewRedisLimiter(redisClient, "ratelimit:auth")
+		emailVerificationLimiter = ratelimit.NewRedisLimiter(redisClient, "ratelimit:email-verification")
 	} else {
 		log.Warn("redis yok; kimlik doğrulama limitleri yalnızca bu örnek için geçerli")
 		limiter = ratelimit.NewMemoryLimiter()
@@ -255,6 +280,23 @@ func buildDependencies(
 		MagicLinks: magicLinkIssuer,
 		WebBaseURL: cfg.Token.WebBaseURL,
 	})
+	requestEmailVerificationUC := iamUC.NewRequestEmailVerificationCodeUseCase(iamUC.RequestEmailVerificationDeps{
+		Users:      userRepo,
+		Challenges: emailVerificationRepo,
+		Codes:      emailVerificationCodeService,
+		Sender:     emailSender,
+		Limiter:    emailVerificationLimiter,
+		Cfg:        cfg.EmailVerification,
+		Log:        log,
+	})
+	verifyEmailUC := iamUC.NewVerifyEmailUseCase(iamUC.VerifyEmailDeps{
+		Users:      userRepo,
+		Challenges: emailVerificationRepo,
+		Codes:      emailVerificationCodeService,
+		Cfg:        cfg.EmailVerification,
+		Log:        log,
+	})
+	registerUC := iamUC.NewRegisterUseCase(userRepo, requestEmailVerificationUC, eventBus)
 	refreshRepo := pgIam.NewRefreshTokenRepo(db)
 	refreshUC := iamUC.NewRefreshTokenUseCase(iamUC.RefreshDeps{
 		Tokens:     refreshRepo,
@@ -292,7 +334,7 @@ func buildDependencies(
 
 	verifyMagicLinkUC := iamUC.NewVerifyMagicLinkUseCase(
 		magicLinkRepo, userRepo, magicLinkTokens, verifyCodeUC,
-		auditRecorder, cfg.Auth.SelfSignup, log)
+		auditRecorder, log)
 	orgLookup := iamAppService.NewOrgLookup(orgUserRepo)
 	deviceChallengeUC := iamUC.NewRequestDeviceChallengeUseCase(
 		deviceChallengeRepo, deviceSignatures, auditRecorder, cfg.Token.DeviceChallengeTTL, log)
@@ -355,16 +397,17 @@ func buildDependencies(
 		llmProfileUC = provaUC.NewLLMProfileUseCase(profileRepo, gateway, auditRecorder)
 		overrideUC = provaUC.NewOverrideScoreUseCase(scoreRepo, sessionRepo, rubRepo, auditRecorder)
 		sessionUC = provaUC.NewSessionUseCase(provaUC.SessionDeps{
-			Devices:    deviceRepo,
-			Sessions:   sessionRepo,
-			Scores:     scoreRepo,
-			Scenarios:  scenRepo,
-			Characters: charRepo,
-			Rubrics:    rubRepo,
-			Gateway:    gateway,
-			Events:     broker,
-			Audit:      auditRecorder,
-			Log:        log,
+			Devices:       deviceRepo,
+			Sessions:      sessionRepo,
+			Scores:        scoreRepo,
+			Scenarios:     scenRepo,
+			Characters:    charRepo,
+			Rubrics:       rubRepo,
+			PersonaClient: personaClient,
+			Gateway:       gateway,
+			Events:        broker,
+			Audit:         auditRecorder,
+			Log:           log,
 		})
 	} else {
 		log.Warn("nesne veritabanı yok; oturum ve içerik akışları devre dışı")
@@ -403,18 +446,21 @@ func buildDependencies(
 
 	// --- GraphQL ---
 	resolver := &graph.Resolver{
-		Log:                log,
-		RequestLoginCodeUC: requestCodeUC,
-		VerifyLoginCodeUC:  verifyCodeUC,
-		ManageDevicesUC:    manageDevicesUC,
-		LogoutUC:           logoutUC,
-		VerifyMagicLinkUC:  verifyMagicLinkUC,
-		DeviceChallengeUC:  deviceChallengeUC,
-		AccountUC:          accountUC,
-		RefreshTokenUC:     refreshUC,
-		Users:              userRepo,
-		RBAC:               rbacService,
-		AuditRepo:          auditRepo,
+		Log:                        log,
+		RegisterUC:                 registerUC,
+		RequestEmailVerificationUC: requestEmailVerificationUC,
+		VerifyEmailUC:              verifyEmailUC,
+		RequestLoginCodeUC:         requestCodeUC,
+		VerifyLoginCodeUC:          verifyCodeUC,
+		ManageDevicesUC:            manageDevicesUC,
+		LogoutUC:                   logoutUC,
+		VerifyMagicLinkUC:          verifyMagicLinkUC,
+		DeviceChallengeUC:          deviceChallengeUC,
+		AccountUC:                  accountUC,
+		RefreshTokenUC:             refreshUC,
+		Users:                      userRepo,
+		RBAC:                       rbacService,
+		AuditRepo:                  auditRepo,
 
 		SessionUC:      sessionUC,
 		SessionRepo:    orNilSession(sessionRepo),

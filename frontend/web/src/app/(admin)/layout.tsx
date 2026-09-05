@@ -1,8 +1,8 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { AppSidebar } from "@/components/admin/app-sidebar"
-import { RoleGate } from "@/components/admin/role-gate"
-import { RoleProvider } from "@/components/admin/role-context"
+
+import { UsersProvider } from "./users/users-store"
 
 /** Admin shell: narrow left sidebar, cream ground, no texture. */
 export default function AdminLayout({
@@ -11,7 +11,9 @@ export default function AdminLayout({
   children: React.ReactNode
 }) {
   return (
-    <RoleProvider>
+    // Kurum listesi panelin tamamında paylaşılır: atama ekranı da kişileri
+    // buradan okur, kullanıcı silindiğinde her iki ekran birlikte değişir.
+    <UsersProvider>
       <SidebarProvider
         style={{ "--sidebar-width": "220px" } as React.CSSProperties}
         className="min-h-svh"
@@ -25,12 +27,10 @@ export default function AdminLayout({
               Prova
             </span>
           </header>
-          <div className="prova-icerik prova-kolon px-6 py-6">
-            <RoleGate>{children}</RoleGate>
-          </div>
+          <div className="prova-icerik prova-kolon px-6 py-6">{children}</div>
         </div>
       </SidebarProvider>
       <Toaster position="bottom-right" />
-    </RoleProvider>
+    </UsersProvider>
   )
 }

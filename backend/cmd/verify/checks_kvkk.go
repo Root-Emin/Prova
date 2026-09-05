@@ -5,14 +5,16 @@ import (
 	"strings"
 )
 
-// 9. E-posta: mailde hem kod hem link var, ikisi de doğruluyor.
+// 9. E-posta: kayıt doğrulaması girişten ayrı, tek kullanımlık bir akıştır.
 func verifyEmail(h *harness) []check {
 	var checks []check
 
-	// Kod yolu
+	// Dedicated registration + e-mail-verification OTP.
 	codeEmail := h.newEmail("kod")
-	if err := h.requestCode(codeEmail); err != nil {
-		return append(checks, fail("kod isteniyor", err.Error()))
+	registerResp, err := h.query("", fmt.Sprintf(
+		`mutation { register(input:{email:%q, firstName:"Kod", lastName:"Testi"}) { registered expiresInSeconds resendAfterSeconds } }`, codeEmail))
+	if err != nil || len(registerResp.Errors) > 0 {
+		return append(checks, fail("kayıt mutation'ı", prettyJSON(registerResp.Errors)))
 	}
 	body, err := h.mailBody(codeEmail)
 	if err != nil {
@@ -20,30 +22,57 @@ func verifyEmail(h *harness) []check {
 	}
 
 	code, hasCode := loginCode(body)
-	link, hasLink := magicLink(body)
-
 	if !hasCode {
-		checks = append(checks, fail("mailde altı haneli kod var", "kod bulunamadı"))
+		return append(checks, fail("doğrulama mailinde altı haneli kod var", "kod bulunamadı"))
 	}
-	if !hasLink {
-		checks = append(checks, fail("mailde magic link var", "bağlantı bulunamadı"))
+	if _, hasLink := magicLink(body); hasLink {
+		checks = append(checks, fail("doğrulama girişi tetiklemiyor", "doğrulama iletisinde login magic link'i var"))
+	} else {
+		checks = append(checks, pass("kayıt ayrı doğrulama iletisi gönderiyor", "6 haneli kod, login bağlantısı yok"))
 	}
-	if hasCode && hasLink {
-		checks = append(checks, pass("tek mailde hem kod hem link var",
-			fmt.Sprintf("kod %s…, link %s…", code[:2], link[:min(len(link), 45)])))
+	verifyResp, err := h.query("", fmt.Sprintf(
+		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified verifiedAt } }`, codeEmail, code))
+	if err != nil || len(verifyResp.Errors) > 0 {
+		return append(checks, fail("verifyEmail e-postayı doğruluyor", prettyJSON(verifyResp.Errors)))
+	}
+	verifiedAt, dbErr := psql(fmt.Sprintf(
+		`SELECT email_verified_at IS NOT NULL FROM users WHERE lower(email)=lower('%s')`, codeEmail))
+	if dbErr != nil || verifiedAt != "t" {
+		checks = append(checks, fail("email_verified_at yazılıyor", fmt.Sprintf("değer=%q hata=%v", verifiedAt, dbErr)))
+	} else {
+		checks = append(checks, pass("verifyEmail yalnız e-postayı doğruluyor", "email_verified_at dolu"))
+	}
+	replay, err := h.query("", fmt.Sprintf(
+		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified } }`, codeEmail, code))
+	if err != nil || len(replay.Errors) == 0 {
+		checks = append(checks, fail("doğrulama kodu tek kullanımlık", "aynı kod ikinci kez kabul edildi"))
+	} else {
+		checks = append(checks, pass("doğrulama kodu tek kullanımlık", replay.firstError()))
 	}
 
-	if hasCode {
-		if _, _, err := h.verifyCode(codeEmail, code, nil, ""); err != nil {
-			checks = append(checks, fail("kod ile giriş", err.Error()))
-		} else {
-			checks = append(checks, pass("kod ile giriş çalışıyor", codeEmail))
-		}
+	// Passwordless login remains a separate code + magic-link flow.
+	if err := h.requestCode(codeEmail); err != nil {
+		return append(checks, fail("doğrulama sonrası giriş kodu", err.Error()))
+	}
+	loginBody, err := h.mailBody(codeEmail)
+	if err != nil {
+		return append(checks, fail("giriş iletisi", err.Error()))
+	}
+	loginOTP, hasLoginOTP := loginCode(loginBody)
+	if !hasLoginOTP {
+		return append(checks, fail("giriş kodu", "kod bulunamadı"))
+	}
+	if _, _, err := h.verifyCode(codeEmail, loginOTP, nil, ""); err != nil {
+		checks = append(checks, fail("ayrı login kodu çalışıyor", err.Error()))
+	} else {
+		checks = append(checks, pass("login ve doğrulama ayrı", "verifyLoginCode oturum üretti"))
 	}
 
-	// Link yolu (ayrı adres: kod ve link aynı iletide ama her biri
-	// bağımsız olarak doğrulanmalı).
+	// Login magic-link path still works for a separately verified account.
 	linkEmail := h.newEmail("link")
+	if err := h.registerAndVerify(linkEmail); err != nil {
+		return append(checks, fail("link hesabı doğrulanıyor", err.Error()))
+	}
 	if err := h.requestCode(linkEmail); err != nil {
 		return append(checks, fail("link için kod isteniyor", err.Error()))
 	}

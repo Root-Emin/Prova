@@ -8,7 +8,8 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { ResultView } from "@/components/prova/result/result-view"
-import { useRole } from "@/components/admin/role-context"
+import { RubricStatusBadge } from "@/components/prova/rubric-status"
+import { currentAdmin } from "@/lib/current-admin"
 import type { RubricStatus } from "@/lib/rubric"
 import {
   scoreForStatus,
@@ -27,13 +28,9 @@ export default function SessionDetailPage({
   const detail = sessionDetails[sessionId]
   if (!detail) notFound()
 
-  const { role } = useRole()
   const [criteria, setCriteria] = React.useState<ResultCriterion[]>(
     detail.criteria
   )
-
-  // Only trainers and admins may override a score; employees can only read it.
-  const canOverride = role === "trainer" || role === "org-admin"
 
   function applyOverride(id: string, newStatus: RubricStatus, reason: string) {
     setCriteria((prev) =>
@@ -42,7 +39,7 @@ export default function SessionDetailPage({
           ? {
               ...criterion,
               earnedScore: scoreForStatus(newStatus, criterion.weight),
-              override: { newStatus, reason, overriddenBy: "Burak Yıldırım · eğitmen" },
+              override: { newStatus, reason, overriddenBy: currentAdmin.name },
             }
           : criterion
       )
@@ -56,44 +53,61 @@ export default function SessionDetailPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <Button
-          nativeButton={false}
-          variant="ghost"
-          size="sm"
-          render={<Link href="/sessions" />}
-        >
-          <ArrowLeft aria-hidden />
-          Oturumlar
-        </Button>
-
-        {result === "passed" ? (
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
           <Button
-            onClick={() =>
-              toast.success("Sertifika oluşturuldu", {
-                description: `${detail.info.employee} · ${detail.info.scenario} · sürüm ${detail.info.version}`,
-              })
-            }
+            nativeButton={false}
+            variant="ghost"
+            size="sm"
+            render={<Link href="/sessions" />}
           >
-            <Award aria-hidden />
-            Sertifika oluştur
+            <ArrowLeft aria-hidden />
+            Oturumlar
           </Button>
-        ) : (
-          <p className="prova-meta normal-case">
-            Sonuç kaldı olduğu için sertifika oluşturulamaz.
-          </p>
-        )}
+          <div className="border-l border-border pl-3">
+            <p className="prova-meta uppercase">Oturum incelemesi</p>
+            <p className="font-mono text-xs text-muted-foreground">{detail.info.sessionNo}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <RubricStatusBadge status={result} />
+          {result === "passed" ? (
+            <Button
+              onClick={() =>
+                toast.success("Sertifika oluşturuldu", {
+                  description: `${detail.info.employee} · ${detail.info.scenario} · sürüm ${detail.info.version}`,
+                })
+              }
+            >
+              <Award aria-hidden />
+              Sertifika oluştur
+            </Button>
+          ) : (
+            <p className="prova-meta normal-case">
+              Sonuç kaldı olduğu için sertifika oluşturulamaz.
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="flex gap-6">
-        <div className="min-w-0 flex-1">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <main className="min-w-0 space-y-3">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h1 className="font-heading text-2xl tracking-tight">Sonuç ve kriterler</h1>
+              <p className="prova-meta mt-1 normal-case">
+                {detail.info.employee} · {detail.info.persona} · değerlendirme ve kanıtlar
+              </p>
+            </div>
+          </div>
           <ResultView
             info={detail.info}
             criteria={criteria}
             onOverride={applyOverride}
-            canOverride={canOverride}
+            canOverride
           />
-        </div>
+        </main>
         <TranscriptPanel lines={detail.transcript} />
       </div>
     </div>

@@ -14,6 +14,10 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	Update(ctx context.Context, user *model.User) error
+	// MarkEmailVerified sets the timestamp only while the account still owns
+	// normalizedEmail. The compare-and-update closes the race with an e-mail
+	// change between challenge validation and persistence.
+	MarkEmailVerified(ctx context.Context, id uuid.UUID, normalizedEmail string, at time.Time) (bool, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, offset, limit int) ([]*model.User, int, error)
 

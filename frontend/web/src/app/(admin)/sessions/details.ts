@@ -73,97 +73,6 @@ const identityTranscript = (employee: string): TranscriptLine[] => [
 ]
 
 export const sessionDetails: Record<string, SessionDetail> = {
-  "o-5512": {
-    info: {
-      sessionNo: "o-5512",
-      scenario: "Kimliğini vermek istemeyen müşteri",
-      persona: "Necdet Bey, 58",
-      version: "v3",
-      employee: "Ayşe Demirtaş",
-      date: "03.09.2026",
-      duration: "05:48",
-      evaluatorModel: "Qwen/Qwen2.5-32B-Instruct",
-      passThreshold: 70,
-      device: "AYSE-MBP-14",
-    },
-    criteria: [
-      {
-        id: "kr-1",
-        code: "KML-01",
-        name: "Kimlik ibrazını mevzuata dayandırarak istedi",
-        weight: 30,
-        mandatory: true,
-        status: "passed",
-        earnedScore: 30,
-        rationale:
-          "Kimlik talebi ilk cümlede yükümlülük olarak sunuldu, müşteri itiraz ettiğinde dayanak tekrar edildi.",
-        quote: {
-          speaker: "Ayşe Demirtaş",
-          time: "00:31",
-          text:
-            "İşlemi açmadan önce kimliğinizi görmem gerekiyor; bu 5549 sayılı kanun kapsamında zorunlu.",
-        },
-      },
-      {
-        id: "kr-2",
-        code: "KML-02",
-        name: "Müşteriyi suçlayıcı dil kullanmadı",
-        weight: 20,
-        mandatory: false,
-        status: "partial",
-        earnedScore: 12,
-        rationale:
-          "Genel olarak kural ile kişi ayrımı korundu; bir kez savunmaya geçen bir ifade kullanıldı.",
-        quote: {
-          speaker: "Ayşe Demirtaş",
-          time: "01:47",
-          text:
-            "Sizinle ilgili bir durum değil, herkes için aynı adımı uyguluyoruz.",
-        },
-      },
-      {
-        id: "kr-3",
-        code: "KML-03",
-        name: "İşlemi kimlik alınmadan başlatmadı",
-        weight: 35,
-        mandatory: true,
-        status: "passed",
-        earnedScore: 35,
-        rationale:
-          "Müşterinin 'siz başlatın, sonra getiririm' önerisi açıkça reddedildi ve gerekçesi verildi.",
-        quote: {
-          speaker: "Ayşe Demirtaş",
-          time: "03:22",
-          text:
-            "Maalesef kimlik teyidi tamamlanmadan işlemi açamıyorum, sistem de izin vermiyor.",
-        },
-      },
-      {
-        id: "kr-4",
-        code: "KML-04",
-        name: "Alternatif çözüm önerdi",
-        weight: 15,
-        mandatory: false,
-        status: "partial",
-        earnedScore: 15,
-        rationale:
-          "Mobil şubeden doğrulama önerildi ancak adımlar sayılmadan geçildi.",
-        quote: {
-          speaker: "Ayşe Demirtaş",
-          time: "04:50",
-          text: "Mobil şubeden de kimlik doğrulaması yapabilirsiniz.",
-        },
-        override: {
-          newStatus: "passed",
-          reason:
-            "Müşteri telefonunu yanında getirmediğini söylediği için adım adım yönlendirme mümkün değildi; öneri bu koşulda yeterli sayıldı.",
-          overriddenBy: "Burak Yıldırım · eğitmen",
-        },
-      },
-    ],
-    transcript: identityTranscript("Ayşe Demirtaş"),
-  },
-
   "o-5498": {
     info: {
       sessionNo: "o-5498",
@@ -270,13 +179,19 @@ export const sessionDetails: Record<string, SessionDetail> = {
         weight: 25,
         mandatory: false,
         status: "partial",
-        earnedScore: 13,
+        earnedScore: 25,
         rationale:
           "İlk iki dakikada müşteri iki kez yarıda kesildi; sonraki bölümde dinleme korundu.",
         quote: {
           speaker: "Selin Arıkan",
           time: "01:06",
           text: "Bir saniye, ben size hemen— tamam, buyurun siz devam edin.",
+        },
+        override: {
+          newStatus: "passed",
+          reason:
+            "Kayıt yeniden dinlendiğinde iki kesintinin de hat gecikmesinden kaynaklandığı, çalışanın müşterinin sözünü almadığı görüldü.",
+          overriddenBy: "Elif Şahin",
         },
       },
       {

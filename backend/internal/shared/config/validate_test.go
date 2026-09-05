@@ -14,10 +14,14 @@ func productionConfig() *Config {
 		Mongo:       MongoConfig{URI: "mongodb://mongo.internal:27017"},
 		JWT:         JWTConfig{Secret: "uzun-ve-rastgele-bir-imza-anahtari"},
 		Auth:        AuthConfig{CodeLength: 6, CodePepper: "rastgele-pepper"},
-		Email:       EmailConfig{Provider: ProviderResend, FromAddress: "noreply@mail.example.com"},
-		GraphQL:     GraphQLConfig{MaxDepth: 12},
-		Token:       TokenConfig{AccessTTL: 15 * time.Minute, RefreshTTL: 720 * time.Hour},
-		Lifecycle:   LifecycleConfig{DeletionGracePeriod: 30 * 24 * time.Hour},
+		EmailVerification: EmailVerificationConfig{
+			Pepper: "ayri-rastgele-dogrulama-pepper", OTPTTL: 5 * time.Minute,
+			MaxAttempts: 5, ResendCooldown: time.Minute,
+		},
+		Email:     EmailConfig{Provider: ProviderResend, FromAddress: "noreply@mail.example.com", Resend: ResendConfig{APIKey: "test-resend-key"}},
+		GraphQL:   GraphQLConfig{MaxDepth: 12},
+		Token:     TokenConfig{AccessTTL: 15 * time.Minute, RefreshTTL: 720 * time.Hour},
+		Lifecycle: LifecycleConfig{DeletionGracePeriod: 30 * 24 * time.Hour},
 	}
 }
 
@@ -35,6 +39,7 @@ func TestValidate_RejectsDefaultSecretsInProduction(t *testing.T) {
 		"varsayılan JWT secret":   func(c *Config) { c.JWT.Secret = DefaultJWTSecret },
 		"boş JWT secret":          func(c *Config) { c.JWT.Secret = "" },
 		"boş pepper":              func(c *Config) { c.Auth.CodePepper = "" },
+		"boş doğrulama pepper":    func(c *Config) { c.EmailVerification.Pepper = "" },
 		"varsayılan Mongo URI":    func(c *Config) { c.Mongo.URI = DefaultMongoURI },
 		"e-posta sağlayıcısı yok": func(c *Config) { c.Email.Provider = ProviderNone },
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -208,16 +209,18 @@ func hizliKademe() *provaModel.LLMProfile {
 	return &provaModel.LLMProfile{
 		Tier:     provaModel.TierFast,
 		Provider: "openai-compatible",
-		BaseURL:  "https://api.openai.com/v1",
-		Model:    "gpt-4o-mini",
+		BaseURL:  envOrDefault("LLM_FAST_BASE_URL", "http://localhost:8000/v1"),
+		Model:    provaModel.DefaultPersonaModel,
 		// Sıcaklık yüksek: karakter tahmin edilebilir olmamalı. Zorluk
 		// seviyesi bunun üzerine ayrıca etki eder.
 		Temperature:        0.85,
 		TopP:               0.95,
 		MaxTokens:          600,
 		SystemPromptSuffix: "",
-		InputCostPer1K:     0.00015,
-		OutputCostPer1K:    0.0006,
+		// Seed values are demo accounting defaults, not vendor pricing. Admin
+		// profiles can replace them with the actual deployment cost.
+		InputCostPer1K:  0.00015,
+		OutputCostPer1K: 0.0006,
 	}
 }
 
@@ -226,17 +229,26 @@ func gucluKademe() *provaModel.LLMProfile {
 	return &provaModel.LLMProfile{
 		Tier:     provaModel.TierStrong,
 		Provider: "openai-compatible",
-		BaseURL:  "https://api.openai.com/v1",
-		Model:    "gpt-4o",
+		BaseURL:  envOrDefault("LLM_STRONG_BASE_URL", "http://localhost:8001/v1"),
+		Model:    provaModel.DefaultEvaluatorModel,
 		// Sıcaklık düşük: puanlama tekrarlanabilir olmalı. Aynı transkriptin
 		// iki kez farklı puan alması sertifikayı tartışmalı hâle getirir.
 		Temperature:        0.1,
 		TopP:               1.0,
 		MaxTokens:          4000,
 		SystemPromptSuffix: "",
-		InputCostPer1K:     0.0025,
-		OutputCostPer1K:    0.01,
+		// Seed values are demo accounting defaults, not vendor pricing. Admin
+		// profiles can replace them with the actual deployment cost.
+		InputCostPer1K:  0.0025,
+		OutputCostPer1K: 0.01,
 	}
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // --- yazma yardımcıları ---
@@ -294,5 +306,44 @@ func seedScenario(ctx context.Context, repo provaRepo.ScenarioRepository, scope 
 }
 
 func seedProfile(ctx context.Context, repo provaRepo.LLMProfileRepository, scope provaRepo.Scope, id uuid.UUID, doc *provaModel.LLMProfile) (*provaModel.LLMProfile, error) {
+	// The first Prova implementation seeded GPT profiles before the agreed
+	// Qwen model set was recorded. Upgrade only those known legacy defaults;
+	// never overwrite a profile that an administrator has already changed.
+	if existing, err := repo.GetByID(ctx, scope, id); err == nil {
+		latest, latestErr := repo.GetLatest(ctx, scope, id)
+		if latestErr != nil {
+			return nil, latestErr
+		}
+		if latest.Version == 1 && isLegacySeedModel(latest) {
+			next, err := repo.NewVersion(ctx, scope, id, adminUserID, func(profile *provaModel.LLMProfile) {
+				profile.Provider = doc.Provider
+				profile.BaseURL = doc.BaseURL
+				profile.Model = doc.Model
+			})
+			if err != nil {
+				return nil, err
+			}
+			published, err := repo.Publish(ctx, scope, id, next.Version)
+			if err != nil {
+				return nil, err
+			}
+			log.Printf("   llm profili %s: eski GPT varsayılanından %s sürümüne yükseltildi", existing.Tier, doc.Model)
+			return published, nil
+		}
+		return latest, nil
+	} else if !errors.Is(err, provaModel.ErrDocumentNotFound) {
+		return nil, err
+	}
 	return seedDoc[provaModel.LLMProfile](ctx, repo, scope, id, doc, "llm profili "+string(doc.Tier))
+}
+
+func isLegacySeedModel(profile *provaModel.LLMProfile) bool {
+	switch profile.Tier {
+	case provaModel.TierFast:
+		return profile.Model == "gpt-4o-mini"
+	case provaModel.TierStrong:
+		return profile.Model == "gpt-4o"
+	default:
+		return false
+	}
 }

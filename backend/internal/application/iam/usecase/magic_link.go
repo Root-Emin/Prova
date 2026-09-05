@@ -84,14 +84,13 @@ func (i *MagicLinkIssuerImpl) Issue(ctx context.Context, email string, now time.
 // cihaz eşleştirme, organizasyon çözümü ve denetim kaydı iki giriş yolunda da
 // aynı olmalı, yoksa zamanla farklı güvenlik davranışına kayarlar.
 type VerifyMagicLinkUseCase struct {
-	links      repository.MagicLinkRepository
-	users      repository.UserRepository
-	tokens     MagicLinkTokens
-	login      *VerifyLoginCodeUseCase
-	audit      auditService.Recorder
-	selfSignup bool
-	log        *slog.Logger
-	now        func() time.Time
+	links  repository.MagicLinkRepository
+	users  repository.UserRepository
+	tokens MagicLinkTokens
+	login  *VerifyLoginCodeUseCase
+	audit  auditService.Recorder
+	log    *slog.Logger
+	now    func() time.Time
 }
 
 // NewVerifyMagicLinkUseCase wires the use case.
@@ -101,7 +100,6 @@ func NewVerifyMagicLinkUseCase(
 	tokens MagicLinkTokens,
 	login *VerifyLoginCodeUseCase,
 	audit auditService.Recorder,
-	selfSignup bool,
 	log *slog.Logger,
 ) *VerifyMagicLinkUseCase {
 	if audit == nil {
@@ -109,7 +107,7 @@ func NewVerifyMagicLinkUseCase(
 	}
 	return &VerifyMagicLinkUseCase{
 		links: links, users: users, tokens: tokens, login: login,
-		audit: audit, selfSignup: selfSignup, log: log, now: time.Now,
+		audit: audit, log: log, now: time.Now,
 	}
 }
 
@@ -152,7 +150,7 @@ func (uc *VerifyMagicLinkUseCase) Execute(ctx context.Context, req dto.VerifyMag
 		return nil, errInvalidLink()
 	}
 
-	user, err := uc.resolveUser(ctx, link.Email, now)
+	user, err := uc.resolveUser(ctx, link.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -172,35 +170,19 @@ func (uc *VerifyMagicLinkUseCase) Execute(ctx context.Context, req dto.VerifyMag
 	return uc.login.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, now, "magic_link")
 }
 
-// resolveUser, adresin hesabını döndürür, gerekiyorsa oluşturur.
-func (uc *VerifyMagicLinkUseCase) resolveUser(ctx context.Context, email string, now time.Time) (*model.User, error) {
+// resolveUser returns an existing verified account. A login link authenticates;
+// it does not register an account or verify its address.
+func (uc *VerifyMagicLinkUseCase) resolveUser(ctx context.Context, email string) (*model.User, error) {
 	user, err := uc.users.GetByEmail(ctx, email)
 	switch {
 	case err == nil:
-		if user.EmailVerifiedAt == nil {
-			// Bağlantıya tıklamak da mailbox'ı kanıtlar; kodla aynı ağırlıkta.
-			verifiedAt := now
-			user.EmailVerifiedAt = &verifiedAt
-			if err := uc.users.Update(ctx, user); err != nil {
-				return nil, err
-			}
+		if !user.IsEmailVerified() {
+			return nil, errInvalidLink()
 		}
 		return user, nil
 
 	case errors.Is(err, domainErr.ErrNotFound):
-		if !uc.selfSignup {
-			return nil, errInvalidLink()
-		}
-		verifiedAt := now
-		user = &model.User{
-			Email:           model.NormalizeEmail(email),
-			Status:          model.UserStatusActive,
-			EmailVerifiedAt: &verifiedAt,
-		}
-		if err := uc.users.Create(ctx, user); err != nil {
-			return nil, err
-		}
-		return user, nil
+		return nil, errInvalidLink()
 
 	default:
 		return nil, err

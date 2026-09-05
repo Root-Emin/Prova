@@ -42,9 +42,10 @@ func (d *Directives) Auth(ctx context.Context, _ any, next graphql.Resolver) (an
 // Permission, adı verilen izni ister.
 //
 // Yetki yoksa nullable alanlar için hata yerine null döner. Bunun nedeni
-// pratiktir: bir çalışan kendi puanını görebilmeli, ama puanın yönetici
-// tarafından ezilip ezilmediğini görmemeli. Ezme alanını hata yapmak, tüm
-// skor sorgusunu — çalışanın görmeye hakkı olan kısmı dâhil — patlatırdı.
+// pratiktir: çalışan sonuç alanını hiç göremez, fakat sonuçsuz/henüz
+// puanlanmamış oturum ile yetki nedeniyle gizlenen sonuç aynı nullable
+// sözleşmeyle güvenli biçimde taşınır. Ezme kaydı ayrıca kendi yetkisiyle
+// korunur; böylece sonuç görebilen ancak ezme göremeyen istemci de çalışır.
 //
 // Nullable olmayan alanlarda null döndürmek GraphQL'de geçersizdir; orada
 // karar hataya çevrilir.

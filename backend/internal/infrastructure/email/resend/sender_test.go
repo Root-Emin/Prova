@@ -109,6 +109,22 @@ func TestSender_ReportsProviderRejection(t *testing.T) {
 	assert.Contains(t, err.Error(), "domain is not verified")
 }
 
+func TestSender_RedactsAPIKeyFromProviderErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"statusCode":401,"name":"auth_error","message":"re_test_key rejected"}`))
+	}))
+	defer srv.Close()
+
+	sender, err := New(testConfig(srv.URL))
+	require.NoError(t, err)
+	_, err = sender.Send(context.Background(), testMessage())
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "re_test_key")
+	assert.Contains(t, err.Error(), "[REDACTED]")
+}
+
 // The provider accepted the message; only the identifier is unreadable. The
 // mail is on its way, so this must not fail the login request.
 func TestSender_ToleratesUnreadableSuccessBody(t *testing.T) {

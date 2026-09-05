@@ -29,6 +29,43 @@ export function PersonaEditor({
   return (
     <>
       <section className="prova-bolum">
+        <h3 className="text-sm font-medium">Senaryo</h3>
+
+        <div className="prova-alan-izgara mt-3">
+          <div className="space-y-1">
+            <Label htmlFor="senaryo-adi">Senaryo adı</Label>
+            <Input
+              id="senaryo-adi"
+              value={scenario.name}
+              placeholder="Görüşmenin adı"
+              onChange={(event) => onChange({ name: event.target.value })}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="senaryo-sektoru">Sektör</Label>
+            <Input
+              id="senaryo-sektoru"
+              value={scenario.sector}
+              placeholder="Bankacılık"
+              onChange={(event) => onChange({ sector: event.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-1">
+          <Label htmlFor="senaryo-ozeti">Özet</Label>
+          <Textarea
+            id="senaryo-ozeti"
+            rows={2}
+            value={scenario.summary}
+            placeholder="Görüşmeyi tek cümlede anlat; listede bu satır görünür."
+            onChange={(event) => onChange({ summary: event.target.value })}
+          />
+        </div>
+      </section>
+
+      <section className="prova-bolum">
         <h3 className="text-sm font-medium">Persona</h3>
 
         {/* Short fields sit in two columns. */}
@@ -38,6 +75,7 @@ export function PersonaEditor({
             <Input
               id="persona-adi"
               value={scenario.personaName}
+              placeholder="Karşıdaki kişinin adı"
               onChange={(event) => onChange({ personaName: event.target.value })}
             />
           </div>
@@ -69,6 +107,7 @@ export function PersonaEditor({
             id="persona-tanimi"
             rows={3}
             value={scenario.personaDefinition}
+            placeholder="Kim, ne istiyor, neden ısrarcı?"
             onChange={(event) => onChange({ personaDefinition: event.target.value })}
           />
         </div>
@@ -105,6 +144,7 @@ export function PersonaEditor({
           rows={6}
           className="mt-2 font-mono text-xs leading-relaxed"
           value={scenario.systemPrompt}
+          placeholder="Modele nasıl davranacağını anlat; doğru cevabı yazma."
           onChange={(event) => onChange({ systemPrompt: event.target.value })}
         />
       </section>

@@ -34,18 +34,6 @@ export const publishedVersions: Record<string, string> = {
 
 export const certificates: Certificate[] = [
   {
-    id: "PRV-2026-0148",
-    sessionId: "o-5512",
-    employee: "Ayşe Demirtaş",
-    scenario: "Kimliğini vermek istemeyen müşteri",
-    rubricVersion: "v3",
-    issuedAt: "03.09.2026",
-    validUntil: "03.09.2027",
-    score: 92,
-    device: "AYSE-MBP-14",
-    status: "valid",
-  },
-  {
     id: "PRV-2026-0147",
     sessionId: "o-5477",
     employee: "Selin Arıkan",
@@ -53,7 +41,7 @@ export const certificates: Certificate[] = [
     rubricVersion: "v2",
     issuedAt: "02.09.2026",
     validUntil: "02.09.2027",
-    score: 74,
+    score: 86,
     device: "SUBE-07-ANK",
     status: "valid",
   },

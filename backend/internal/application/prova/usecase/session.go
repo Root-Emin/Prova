@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,16 +23,17 @@ import (
 type SessionDeps struct {
 	// Devices, oturumu başlatan cihazın hâlâ yetkili olduğunu doğrulamak
 	// için. Nil bırakılabilir; o zaman kontrol atlanır.
-	Devices    iamRepo.DeviceRepository
-	Sessions   provaRepo.SessionRepository
-	Scores     provaRepo.ScoreRepository
-	Scenarios  provaRepo.ScenarioRepository
-	Characters provaRepo.CharacterRepository
-	Rubrics    provaRepo.RubricRepository
-	Gateway    *appService.Gateway
-	Events     SessionPublisher
-	Audit      auditService.Recorder
-	Log        *slog.Logger
+	Devices       iamRepo.DeviceRepository
+	Sessions      provaRepo.SessionRepository
+	Scores        provaRepo.ScoreRepository
+	Scenarios     provaRepo.ScenarioRepository
+	Characters    provaRepo.CharacterRepository
+	Rubrics       provaRepo.RubricRepository
+	PersonaClient appService.PersonaInferenceClient
+	Gateway       *appService.Gateway
+	Events        SessionPublisher
+	Audit         auditService.Recorder
+	Log           *slog.Logger
 }
 
 // SessionPublisher, oturum olaylarını abonelere yayar.
@@ -64,7 +67,9 @@ type SessionEvent struct {
 // SessionUseCase, oturumu başlatır, yürütür ve bitirir.
 type SessionUseCase struct {
 	SessionDeps
-	now func() time.Time
+	now       func() time.Time
+	turnMu    sync.Mutex
+	turnLocks map[uuid.UUID]*sync.Mutex
 }
 
 // NewSessionUseCase wires the use case.
@@ -72,7 +77,7 @@ func NewSessionUseCase(deps SessionDeps) *SessionUseCase {
 	if deps.Audit == nil {
 		deps.Audit = auditService.NoopRecorder{}
 	}
-	return &SessionUseCase{SessionDeps: deps, now: time.Now}
+	return &SessionUseCase{SessionDeps: deps, now: time.Now, turnLocks: make(map[uuid.UUID]*sync.Mutex)}
 }
 
 // Start, yayınlanmış bir senaryodan yeni oturum açar.
@@ -156,8 +161,9 @@ func (uc *SessionUseCase) ensureDeviceUsable(ctx context.Context, employeeID uui
 	return nil
 }
 
-// SubmitTurn, çalışanın mesajını kaydeder ve karakterin yanıtını üretir.
-func (uc *SessionUseCase) SubmitTurn(ctx context.Context, scope provaRepo.Scope, employeeID, sessionID uuid.UUID, text string) (*provaModel.Turn, error) {
+// SubmitTurn, çalışanın mesajını server-side session context ile persona
+// inference'a gönderir ve başarılı employee/persona çiftini kalıcılaştırır.
+func (uc *SessionUseCase) SubmitTurn(ctx context.Context, scope provaRepo.Scope, employeeID, sessionID, requestID uuid.UUID, text string) (*provaModel.Turn, error) {
 	session, err := uc.loadOwnedSession(ctx, scope, employeeID, sessionID)
 	if err != nil {
 		return nil, err
@@ -165,88 +171,184 @@ func (uc *SessionUseCase) SubmitTurn(ctx context.Context, scope provaRepo.Scope,
 	if !session.IsActive() {
 		return nil, provaModel.ErrSessionNotActive
 	}
+
+	unlock := uc.lockTurn(sessionID)
+	defer unlock()
+	session, err = uc.loadOwnedSession(ctx, scope, employeeID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !session.IsActive() {
+		return nil, provaModel.ErrSessionNotActive
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, domainErr.New(domainErr.ErrValidation, "çalışan mesajı boş olamaz", nil)
+	}
+	if requestID == uuid.Nil {
+		requestID = uuid.New()
+	}
+
+	// Authorization and state checks precede this lookup so an idempotency key
+	// cannot be used to probe another employee's conversation.
+	if existing, lookupErr := uc.Sessions.FindTurnByRequestID(ctx, scope, sessionID, requestID, provaModel.TurnRoleEmployee); lookupErr == nil {
+		if existing.Text != text {
+			return nil, domainErr.New(domainErr.ErrConflict, "request_id başka bir mesaj için kullanılmış", nil)
+		}
+		personaTurn, personaErr := uc.Sessions.FindTurnByRequestID(ctx, scope, sessionID, requestID, provaModel.TurnRoleCharacter)
+		if personaErr != nil {
+			return nil, domainErr.New(domainErr.ErrInternal, "idempotent konuşma sırası eksik", personaErr)
+		}
+		return personaTurn, nil
+	} else if !errors.Is(lookupErr, domainErr.ErrNotFound) {
+		return nil, lookupErr
+	}
 	if !session.HasTurnsLeft() {
 		return nil, provaModel.ErrSessionTurnLimit
 	}
 
-	character, rubric, scenario, err := uc.loadFrozenContent(ctx, scope, session)
+	character, _, scenario, err := uc.loadFrozenContent(ctx, scope, session)
 	if err != nil {
 		return nil, err
 	}
-
 	history, err := uc.Sessions.ListTurns(ctx, scope, sessionID)
 	if err != nil {
 		return nil, err
 	}
+	if uc.PersonaClient == nil {
+		return nil, domainErr.New(domainErr.ErrInternal, "persona inference client yapılandırılmamış", nil)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
-	// Çalışanın sırası önce yazılıyor: LLM çağrısı başarısız olsa bile
-	// söylediği kaybolmamalı, ve transkript orijinal metni tutmalı.
+	response, err := uc.PersonaClient.Respond(ctx, buildPersonaRequest(requestID, sessionID, character, scenario, history, text))
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, mapPersonaError(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	requestIDCopy := requestID
 	employeeTurn := &provaModel.Turn{
-		SessionID: sessionID,
-		Role:      provaModel.TurnRoleEmployee,
-		Text:      text,
-		Signals:   []string{},
+		SessionID: sessionID, RequestID: &requestIDCopy,
+		Role: provaModel.TurnRoleEmployee, Text: text, Signals: []string{},
+	}
+	personaTurn := &provaModel.Turn{
+		SessionID: sessionID, RequestID: &requestIDCopy,
+		Role: provaModel.TurnRoleCharacter, Text: response.Text, Signals: []string{},
 	}
 	if err := uc.Sessions.AppendTurn(ctx, scope, employeeTurn); err != nil {
 		return nil, err
 	}
-	uc.publish(SessionEvent{
-		SessionID: sessionID, Type: EventTranscriptChunk,
-		Text: text, Turn: employeeTurn, OccurredAt: uc.now().UTC(),
-	})
-
-	messages := provaService.BuildCharacterMessages(provaService.CharacterTurnInput{
-		Character:       character,
-		Scenario:        scenario,
-		Rubric:          rubric,
-		History:         history,
-		EmployeeMessage: text,
-		AdminSuffix:     "",
-	})
-
-	result, err := uc.Gateway.Invoke(ctx, appService.Call{
-		Scope:      scope,
-		SessionID:  &sessionID,
-		Purpose:    appService.PurposeTurn,
-		Messages:   messages,
-		Difficulty: character.Difficulty,
-		JSONMode:   true,
-	})
-	if err != nil {
+	if err := uc.Sessions.AppendTurn(ctx, scope, personaTurn); err != nil {
+		// Rollback must still run when the request context was canceled after
+		// the first insert; otherwise a client timeout could leave a dangling
+		// employee turn without its persona reply.
+		rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		rollbackErr := uc.Sessions.DeleteTurn(rollbackCtx, scope, sessionID, employeeTurn.ID)
+		cancelRollback()
+		if rollbackErr != nil {
+			return nil, domainErr.New(domainErr.ErrInternal, "konuşma sıraları geri alınamadı", errors.Join(err, rollbackErr))
+		}
 		return nil, err
 	}
 
-	reply := provaService.ParseCharacterReply(result.Content, rubric)
+	// Publish only after both records exist. A provider or persistence failure
+	// therefore cannot expose a transcript event for a half-written turn.
+	uc.publish(SessionEvent{SessionID: sessionID, Type: EventTranscriptChunk, Text: text, Turn: employeeTurn, OccurredAt: uc.now().UTC()})
+	uc.publish(SessionEvent{SessionID: sessionID, Type: EventCharacterReply, Text: response.Text, Turn: personaTurn, Signals: []string{}, OccurredAt: uc.now().UTC()})
+	return personaTurn, nil
+}
 
-	characterTurn := &provaModel.Turn{
-		SessionID:        sessionID,
-		Role:             provaModel.TurnRoleCharacter,
-		Text:             reply.Reply,
-		Signals:          reply.Signals,
-		MaskedFieldCount: result.MaskedFields,
+func (uc *SessionUseCase) lockTurn(sessionID uuid.UUID) func() {
+	uc.turnMu.Lock()
+	if uc.turnLocks == nil {
+		uc.turnLocks = make(map[uuid.UUID]*sync.Mutex)
 	}
-	if err := uc.Sessions.AppendTurn(ctx, scope, characterTurn); err != nil {
-		return nil, err
+	lock, ok := uc.turnLocks[sessionID]
+	if !ok {
+		lock = &sync.Mutex{}
+		uc.turnLocks[sessionID] = lock
 	}
+	uc.turnMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
+}
 
-	if len(reply.Signals) > 0 {
-		uc.publish(SessionEvent{
-			SessionID: sessionID, Type: EventRubricSignal,
-			Signals: reply.Signals, OccurredAt: uc.now().UTC(),
-		})
+func buildPersonaRequest(requestID, sessionID uuid.UUID, character *provaModel.Character, scenario *provaModel.Scenario, history []*provaModel.Turn, employeeMessage string) appService.PersonaRequest {
+	personaHistory := make([]appService.ConversationTurn, 0, minPersonaHistory(len(history)))
+	start := 0
+	if len(history) > maxPersonaHistoryTurns {
+		start = len(history) - maxPersonaHistoryTurns
 	}
-	uc.publish(SessionEvent{
-		SessionID: sessionID, Type: EventCharacterReply,
-		Text: reply.Reply, Turn: characterTurn, Signals: reply.Signals,
-		OccurredAt: uc.now().UTC(),
-	})
+	for _, turn := range history[start:] {
+		if turn == nil {
+			continue
+		}
+		role := ""
+		switch turn.Role {
+		case provaModel.TurnRoleEmployee:
+			role = "employee"
+		case provaModel.TurnRoleCharacter:
+			role = "persona"
+		default:
+			continue
+		}
+		personaHistory = append(personaHistory, appService.ConversationTurn{Role: role, Content: turn.Text})
+	}
+	return appService.PersonaRequest{
+		RequestID: requestID.String(), SessionID: sessionID.String(), ScenarioID: scenario.ID.String(),
+		Persona: appService.PersonaInput{
+			ID: character.ID.String(), Name: character.Name, Role: "roleplay character", Description: character.Persona,
+			BehavioralTraits: []string{string(character.Difficulty)}, CurrentState: map[string]any{},
+		},
+		Scenario: appService.ScenarioInput{
+			ID: scenario.ID.String(), Title: scenario.Title, Context: scenario.Context, PersonaGoal: scenario.Objective,
+			AllowedKnowledge: append([]string(nil), character.HiddenFacts...), BehavioralRules: append([]string(nil), character.BehaviorRules...),
+		},
+		ConversationHistory: personaHistory, EmployeeMessage: employeeMessage,
+	}
+}
 
-	return characterTurn, nil
+const maxPersonaHistoryTurns = 20
+
+func minPersonaHistory(length int) int {
+	if length < maxPersonaHistoryTurns {
+		return length
+	}
+	return maxPersonaHistoryTurns
+}
+
+func mapPersonaError(err error) error {
+	switch {
+	case errors.Is(err, appService.ErrPersonaValidation):
+		return domainErr.New(domainErr.ErrValidation, "persona isteği geçersiz", nil)
+	case errors.Is(err, appService.ErrPersonaTimeout):
+		return domainErr.New(domainErr.ErrInternal, "persona yanıtı zaman aşımına uğradı", nil)
+	case errors.Is(err, appService.ErrPersonaUnavailable):
+		return domainErr.New(domainErr.ErrInternal, "persona servisi kullanılamıyor", nil)
+	case errors.Is(err, appService.ErrPersonaInvalidModel):
+		return domainErr.New(domainErr.ErrInternal, "persona yanıtı geçersiz", nil)
+	default:
+		return domainErr.New(domainErr.ErrInternal, "persona yanıtı alınamadı", nil)
+	}
 }
 
 // End, oturumu bitirir ve rubriğe göre puanlar.
 func (uc *SessionUseCase) End(ctx context.Context, scope provaRepo.Scope, employeeID, sessionID uuid.UUID) (*provaModel.Session, error) {
 	session, err := uc.loadOwnedSession(ctx, scope, employeeID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	// Serialize lifecycle transition with SubmitTurn. This prevents scoring
+	// from changing the session state between the employee and persona writes.
+	unlock := uc.lockTurn(sessionID)
+	defer unlock()
+	session, err = uc.loadOwnedSession(ctx, scope, employeeID, sessionID)
 	if err != nil {
 		return nil, err
 	}

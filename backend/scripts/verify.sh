@@ -32,6 +32,7 @@ export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://localhost:3000}"
 export WEB_BASE_URL="${WEB_BASE_URL:-http://localhost:3000}"
 export JWT_SECRET="${JWT_SECRET:-verify-only-jwt-secret}"
 export AUTH_CODE_PEPPER="${AUTH_CODE_PEPPER:-verify-only-pepper}"
+export EMAIL_VERIFICATION_OTP_PEPPER="${EMAIL_VERIFICATION_OTP_PEPPER:-verify-only-email-verification-pepper}"
 export EMAIL_PROVIDER=smtp
 export EMAIL_FROM_ADDRESS="${EMAIL_FROM_ADDRESS:-noreply@mail.prova.local}"
 export SMTP_HOST="${SMTP_HOST:-localhost}"

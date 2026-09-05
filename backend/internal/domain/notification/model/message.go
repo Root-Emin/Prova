@@ -1,11 +1,37 @@
 package model
 
-import "strings"
+import (
+	"fmt"
+	"net/mail"
+	"strings"
+)
 
 // Address is an e-mail recipient or sender.
 type Address struct {
 	Email string
 	Name  string
+}
+
+// ParseAddress accepts either a bare address or an RFC 5322 display address.
+// Configuration uses the latter for Resend (for example, "Prova
+// <onboarding@resend.dev>"). Keeping parsing here prevents adapters from
+// accidentally producing a malformed From header or duplicating a display
+// name that is already present in the configured value.
+func ParseAddress(raw, defaultName string) (Address, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\r\n") {
+		return Address{}, fmt.Errorf("invalid e-mail address")
+	}
+
+	parsed, err := mail.ParseAddress(raw)
+	if err != nil || strings.TrimSpace(parsed.Address) == "" {
+		return Address{}, fmt.Errorf("invalid e-mail address")
+	}
+	name := strings.TrimSpace(parsed.Name)
+	if name == "" {
+		name = strings.TrimSpace(defaultName)
+	}
+	return Address{Email: parsed.Address, Name: name}, nil
 }
 
 // String renders the address in RFC 5322 form ("Name <user@example.com>").

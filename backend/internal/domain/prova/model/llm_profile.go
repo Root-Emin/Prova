@@ -19,6 +19,15 @@ const (
 	TierStrong Tier = "strong"
 )
 
+// DefaultPersonaModel is the low-latency role-play model used during a live
+// session. The published profile remains runtime-editable; this value is only
+// the seed/default that keeps a fresh Prova installation on the agreed stack.
+const DefaultPersonaModel = "Qwen/Qwen3-4B-Instruct-2507"
+
+// DefaultEvaluatorModel is the post-session evaluator. It is intentionally
+// separate from the persona model: scoring is not on the live latency path.
+const DefaultEvaluatorModel = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+
 // IsValid reports whether the tier is known.
 func (t Tier) IsValid() bool { return t == TierFast || t == TierStrong }
 

@@ -76,6 +76,21 @@ func (r *fakeUserRepo) Update(_ context.Context, user *model.User) error {
 	return nil
 }
 
+func (r *fakeUserRepo) MarkEmailVerified(_ context.Context, id uuid.UUID, normalizedEmail string, at time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	user, ok := r.byID[id]
+	if !ok || model.NormalizeEmail(user.Email) != model.NormalizeEmail(normalizedEmail) || user.EmailVerifiedAt != nil {
+		return false, nil
+	}
+	verifiedAt := at
+	user.EmailVerifiedAt = &verifiedAt
+	if user.Status == model.UserStatusInactive {
+		user.Status = model.UserStatusActive
+	}
+	return true, nil
+}
+
 func (r *fakeUserRepo) ListDuePurge(_ context.Context, now time.Time, limit int) ([]*model.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

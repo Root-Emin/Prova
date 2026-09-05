@@ -58,6 +58,25 @@ func (r *smokeRunner) requestCode(email string) error {
 	return err
 }
 
+func (r *smokeRunner) registerAndVerify(email string) error {
+	_, err := r.mustQuery("", fmt.Sprintf(
+		`mutation { register(input:{email:%q, firstName:"Duman", lastName:"Testi"}) { registered } }`, email))
+	if err != nil {
+		return err
+	}
+	body, err := r.mailBody(email)
+	if err != nil {
+		return err
+	}
+	code, ok := loginCode(body)
+	if !ok {
+		return fmt.Errorf("doğrulama iletisinde kod yok")
+	}
+	_, err = r.mustQuery("", fmt.Sprintf(
+		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified } }`, email, code))
+	return err
+}
+
 func (r *smokeRunner) verifyCode(email, code string, device *deviceInput, signature string) (authResult, error) {
 	signatureField := ""
 	if signature != "" {

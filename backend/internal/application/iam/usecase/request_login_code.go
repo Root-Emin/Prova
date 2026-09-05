@@ -97,26 +97,24 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 		return nil, err
 	}
 
-	_, err := uc.Users.GetByEmail(ctx, email)
+	user, err := uc.Users.GetByEmail(ctx, email)
 	switch {
 	case err == nil:
-		// Known address: proceed.
-	case errors.Is(err, domainErr.ErrNotFound):
-		if !uc.Cfg.SelfSignup {
-			// Invitation-only deployment: there is nobody to mail. The caller
-			// still gets the standard response after the standard delay, so the
-			// silence is indistinguishable from a delivered code.
-			uc.Log.InfoContext(ctx, "login code requested for unknown address", "provisioning", "disabled")
+		// Login is only available after the dedicated registration verification
+		// flow has proved the address. Keep the response generic so this check
+		// does not expose account state.
+		if !user.IsEmailVerified() || (!user.IsActive() && !user.IsPendingDeletion()) {
 			return uc.response(), nil
 		}
-		// Self-signup: the account is created when the code is redeemed, not
-		// now. Issuing codes to addresses that never verify must not populate
-		// the user table.
+	case errors.Is(err, domainErr.ErrNotFound):
+		// Registration is a distinct mutation. Login never provisions an
+		// account and never doubles as e-mail verification.
+		return uc.response(), nil
 	default:
 		return nil, err
 	}
 
-	code, digest, err := uc.CodeSvc.Generate()
+	code, digest, err := generateLoginCode(uc.CodeSvc, user, email)
 	if err != nil {
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to generate login code", err)
 	}
@@ -138,6 +136,9 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 		ExpiresAt:   now.Add(uc.Cfg.CodeTTL),
 		RequestIP:   requestIP,
 		CreatedAt:   now,
+	}
+	if user != nil {
+		record.UserID = user.ID
 	}
 	if err := uc.Codes.Create(ctx, record); err != nil {
 		return nil, err

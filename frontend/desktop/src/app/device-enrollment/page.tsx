@@ -32,7 +32,7 @@ export default function DeviceEnrollmentPage() {
         </div>
         <div className="flex items-baseline justify-between gap-4">
           <dt className="prova-meta uppercase">Parmak izi</dt>
-          <dd className="font-mono text-sm">{enrollmentInfo.fingerprint}</dd>
+          <dd className="font-mono text-sm">{shortFingerprint(device.fingerprint)}</dd>
         </div>
         <div className="flex items-baseline justify-between gap-4 border-t border-border pt-3">
           <dt className="prova-meta uppercase">Eşleştirme kodu</dt>
@@ -47,4 +47,9 @@ export default function DeviceEnrollmentPage() {
       </p>
     </FormShell>
   )
+}
+
+function shortFingerprint(fingerprint: string | null): string {
+  if (!fingerprint) return "Kullanılamıyor"
+  return `${fingerprint.slice(0, 4)}·${fingerprint.slice(4, 8)}·${fingerprint.slice(8, 12)}`
 }

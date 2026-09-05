@@ -7,8 +7,7 @@ import type { RubricStatus } from "@/lib/rubric"
 import { computeResult, type ResultInfo, type ResultCriterion } from "@/lib/result"
 
 /**
- * The single body of a scoring result. The employee view on desktop and the
- * trainer review screen on web both render this component.
+ * Shared result body for the admin review and certificate screens.
  */
 export function ResultView({
   info,
@@ -44,11 +43,26 @@ export function ResultView({
         info={info}
       />
 
-      <CriteriaAccordion
-        criteria={criteria}
-        onOverride={onOverride}
-        canOverride={canOverride}
-      />
+      <section className="space-y-3">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="font-heading text-xl tracking-tight">
+              Kriter değerlendirmesi
+            </h2>
+            <p className="prova-meta mt-1 normal-case">
+              Her kriter transkript kanıtı ve gerekçesiyle birlikte incelenebilir.
+            </p>
+          </div>
+          <span className="prova-meta shrink-0 normal-case">
+            {criteria.length} kriter
+          </span>
+        </div>
+        <CriteriaAccordion
+          criteria={criteria}
+          onOverride={onOverride}
+          canOverride={canOverride}
+        />
+      </section>
 
       <p className="prova-meta normal-case">
         Değerlendiren model {info.evaluatorModel}

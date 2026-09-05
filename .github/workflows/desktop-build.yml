@@ -1,0 +1,67 @@
+name: Desktop build
+
+on:
+  push:
+    paths:
+      - "frontend/desktop/**"
+      - "frontend/shared/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/desktop-build.yml"
+  pull_request:
+    paths:
+      - "frontend/desktop/**"
+      - "frontend/shared/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/desktop-build.yml"
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (arm64 + x64)
+            os: macos-latest
+            command: dist:mac
+            artifacts: frontend/desktop/release/*.dmg
+          - name: Windows (x64)
+            os: windows-latest
+            command: dist:win
+            artifacts: frontend/desktop/release/*.exe
+          - name: Linux (x64)
+            os: ubuntu-latest
+            command: dist:linux
+            artifacts: |
+              frontend/desktop/release/*.AppImage
+              frontend/desktop/release/*.deb
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build and package
+        working-directory: frontend
+        run: npm run ${{ matrix.command }} --workspace desktop
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: prova-${{ runner.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error

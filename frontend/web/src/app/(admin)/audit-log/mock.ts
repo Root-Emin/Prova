@@ -21,7 +21,7 @@ export const auditEntries: AuditEntry[] = [
     time: "03.09.2026 09:12:03",
     actor: "elif.sahin@akbank-egitim.tr",
     action: "Puan ezildi",
-    target: "o-5512 · KML-03",
+    target: "o-5477 · CGR-01",
     sourceIp: "10.42.7.4",
   },
   {
@@ -31,14 +31,6 @@ export const auditEntries: AuditEntry[] = [
     action: "Değerlendirme güçlü modele yönlendirildi",
     target: "o-5498",
     sourceIp: "—",
-  },
-  {
-    id: "d-7709",
-    time: "02.09.2026 16:04:41",
-    actor: "ayse.demirtas@akbank-egitim.tr",
-    action: "Cihaz kaydedildi",
-    target: "c-8805 · AYSE-EV-PC",
-    sourceIp: "88.243.11.207",
   },
   {
     id: "d-7708",

@@ -174,17 +174,17 @@ Ayrıntı: [SECURITY.md](SECURITY.md)
 
 | Dosya | Rol |
 |---|---|
-| `internal/application/iam/usecase/request_login_code.go` | Kod + link aynı iletide |
-| `internal/application/iam/usecase/magic_link.go` | Bağlantı üretimi ve doğrulaması |
-| `internal/infrastructure/auth/magic_link_service.go` | Token üretimi ve hash'leme |
-| `internal/domain/notification/template/login_code.go` | İleti şablonu |
-| `internal/infrastructure/email/smtp/` | Mailpit / SMTP adaptörü |
+| `internal/application/iam/usecase/register.go` | Kullanıcıyı doğrulanmamış oluşturur ve doğrulama gönderimini tetikler |
+| `internal/application/iam/usecase/email_verification.go` | Kod isteme, cooldown/limit ve doğrulama iş kuralları |
+| `internal/infrastructure/redis/iam/email_verification_repository.go` | Redis-only challenge, TTL, atomik deneme/yakma |
+| `internal/infrastructure/auth/login_code_service.go` | Ortak `crypto/rand` + account/e-mail-bound HMAC primitive'i |
+| `internal/domain/notification/template/email_verification.go` | Ayrı doğrulama ileti şablonu |
 | `internal/infrastructure/email/resend/` | Üretim adaptörü |
-| `deployments/docker-compose.yml` | Mailpit servisi |
+| `graph/schema.graphqls` | `register`, `requestEmailVerificationCode`, `verifyEmail` |
 
-**Doğrulama:** `ONLY=9 ./scripts/verify.sh`
-Tek mailde hem kod hem link var, ikisi de ayrı ayrı doğruluyor, link tek
-kullanımlık, bağlantı web arayüzüne işaret ediyor.
+**Doğrulama:** `go test ./internal/application/iam/usecase ./internal/infrastructure/auth/...`
+Doğrulama kodu girişten ayrıdır; beş dakika/5 deneme/60 saniye politikasıyla
+Redis'te tutulur, başarılı kullanım yalnızca `email_verified_at` alanını yazar.
 
 ---
 

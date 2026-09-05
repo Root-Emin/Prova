@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { Check, ChevronLeft, Save } from "lucide-react"
+import { Check, ChevronLeft, Plus, Save } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -12,13 +12,14 @@ import { PersonaEditor } from "./persona-editor"
 import { PersonaGallery } from "./persona-gallery"
 import { RubricEditor } from "./rubric-editor"
 import { ScenarioList } from "./scenario-list"
-import { VersionPicker } from "./version-picker"
 import {
   personaColorClass,
   personaColors,
   type PersonaColor,
 } from "./persona-colors"
+import { currentAdmin } from "@/lib/current-admin"
 import {
+  models,
   scenarios as initialScenarios,
   type Criterion,
   type Scenario,
@@ -34,6 +35,7 @@ export default function PersonasPage() {
   const [dirty, setDirty] = React.useState(false)
   const [lastRow, setLastRow] = React.useState<string | null>(null)
   const newCriterionCounter = React.useRef(0)
+  const newScenarioCounter = React.useRef(0)
 
   const owned = React.useMemo(
     () =>
@@ -96,24 +98,38 @@ export default function PersonasPage() {
     })
   }
 
-  function newVersion() {
-    if (!scenario) return
-    const nextNumber = scenario.versions.length + 1
-    const created = {
-      id: `v-${nextNumber}`,
-      label: `v${nextNumber}`,
-      date: new Date().toLocaleDateString("tr-TR"),
-      published: true,
+  /**
+   * Boş senaryo açar. Hiçbir alan doldurulmaz: adı, özeti, persona tanımı ve
+   * rubriği kuran kişi yazar. Kayıt taslak olarak başlar, yayına alınmadan
+   * atanamaz.
+   */
+  function addScenario() {
+    if (!activeColor) return
+    const bugun = new Date().toLocaleDateString("tr-TR")
+    const created: Scenario = {
+      id: `s-yeni-${(newScenarioCounter.current += 1)}`,
+      color: activeColor,
+      name: "",
+      summary: "",
+      sector: "",
+      status: "draft",
+      lastEditedBy: currentAdmin.name,
+      lastEditedAt: bugun,
+      sessionCount: 0,
+      personaName: "",
+      personaDefinition: "",
+      firmness: 50,
+      systemPrompt: "",
+      model: Object.keys(models)[0],
+      criteria: [],
+      versions: [{ id: "v-1", label: "v1", date: bugun, published: false }],
+      activeVersionId: "v-1",
     }
-    update({
-      versions: [
-        created,
-        ...scenario.versions.map((version) => ({ ...version, published: false })),
-      ],
-      activeVersionId: created.id,
-    })
-    toast.success(`${created.label} oluşturuldu`, {
-      description: "Yeni oturumlar bu sürümle başlar.",
+    setScenarios((prev) => [...prev, created])
+    setSelectedId(created.id)
+    setDirty(true)
+    toast.success("Boş senaryo açıldı", {
+      description: "Adını, persona tanımını ve rubriğini doldurun.",
     })
   }
 
@@ -179,12 +195,10 @@ export default function PersonasPage() {
           `${scenario.sessionCount} oturum`,
         ]}
         action={
-          <VersionPicker
-            versions={scenario.versions}
-            activeVersionId={scenario.activeVersionId}
-            onVersionChange={(id) => update({ activeVersionId: id })}
-            onNewVersion={newVersion}
-          />
+          <Button onClick={addScenario}>
+            <Plus aria-hidden />
+            Senaryo oluştur
+          </Button>
         }
       />
 
@@ -219,9 +233,11 @@ export default function PersonasPage() {
 
               <div className="min-w-0">
                 <h2 className="font-heading text-base text-primary">
-                  {scenario.name}
+                  {scenario.name || "Adsız senaryo"}
                 </h2>
-                <p className="prova-meta normal-case">{scenario.summary}</p>
+                <p className="prova-meta normal-case">
+                  {scenario.summary || "Özet henüz yazılmadı"}
+                </p>
                 <dl className="mt-2 space-y-1">
                   <div className="flex gap-2">
                     <dt className={cn("prova-meta shrink-0 uppercase", renk.ink)}>
@@ -259,7 +275,9 @@ export default function PersonasPage() {
                 ? "Kaydedilmemiş değişiklik var"
                 : lastRow
                   ? `Kaydedildi ${lastRow}`
-                  : `Yayındaki sürüm ${live?.label ?? "—"}`}
+                  : live
+                    ? `Yayındaki sürüm ${live.label}`
+                    : "Taslak — henüz yayında değil"}
             </span>
             <Button onClick={save} disabled={!dirty}>
               {dirty ? <Save aria-hidden /> : <Check aria-hidden />}

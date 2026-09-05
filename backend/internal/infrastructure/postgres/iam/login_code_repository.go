@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
+	iamRepo "github.com/masterfabric-go/masterfabric/internal/domain/iam/repository"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
 
@@ -22,7 +23,7 @@ func NewLoginCodeRepo(db *pgxpool.Pool) *LoginCodeRepo {
 	return &LoginCodeRepo{db: db}
 }
 
-const loginCodeColumns = `id, email, code_digest, purpose, attempts, max_attempts, expires_at, consumed_at, host(request_ip), created_at`
+const loginCodeColumns = `id, user_id, email, code_digest, purpose, attempts, max_attempts, expires_at, consumed_at, host(request_ip), created_at`
 
 func (r *LoginCodeRepo) Create(ctx context.Context, code *model.LoginCode) error {
 	if code.ID == uuid.Nil {
@@ -33,9 +34,9 @@ func (r *LoginCodeRepo) Create(ctx context.Context, code *model.LoginCode) error
 	}
 
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO login_codes (id, email, code_digest, purpose, attempts, max_attempts, expires_at, request_ip, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		code.ID, code.Email, code.CodeDigest, code.Purpose, code.Attempts, code.MaxAttempts,
+		`INSERT INTO login_codes (id, user_id, email, code_digest, purpose, attempts, max_attempts, expires_at, request_ip, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		code.ID, nullableUserID(code.UserID), code.Email, code.CodeDigest, code.Purpose, code.Attempts, code.MaxAttempts,
 		code.ExpiresAt, nullableIP(code.RequestIP), code.CreatedAt,
 	)
 	if err != nil {
@@ -88,13 +89,24 @@ func (r *LoginCodeRepo) IncrementAttempts(ctx context.Context, id uuid.UUID) (in
 }
 
 func (r *LoginCodeRepo) MarkConsumed(ctx context.Context, id uuid.UUID, at time.Time) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE login_codes SET consumed_at = $1 WHERE id = $2 AND consumed_at IS NULL`, at, id,
-	)
+	_, err := r.MarkConsumedIfActive(ctx, id, at)
+	return err
+}
+
+// MarkConsumedIfActive atomically burns a challenge and reports whether this
+// request won the one-time-use race.
+func (r *LoginCodeRepo) MarkConsumedIfActive(ctx context.Context, id uuid.UUID, at time.Time) (bool, error) {
+	var consumedID uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`UPDATE login_codes SET consumed_at = $1 WHERE id = $2 AND consumed_at IS NULL RETURNING id`, at, id,
+	).Scan(&consumedID)
 	if err != nil {
-		return domainErr.New(domainErr.ErrInternal, "failed to consume login code", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, domainErr.New(domainErr.ErrInternal, "failed to consume login code", err)
 	}
-	return nil
+	return consumedID == id, nil
 }
 
 func (r *LoginCodeRepo) InvalidateActive(ctx context.Context, email string, purpose model.LoginCodePurpose, at time.Time) error {
@@ -139,7 +151,8 @@ func scanLoginCode(row rowScanner, failMsg string) (*model.LoginCode, error) {
 		c  model.LoginCode
 		ip *string
 	)
-	err := row.Scan(&c.ID, &c.Email, &c.CodeDigest, &c.Purpose, &c.Attempts, &c.MaxAttempts,
+	var userID *uuid.UUID
+	err := row.Scan(&c.ID, &userID, &c.Email, &c.CodeDigest, &c.Purpose, &c.Attempts, &c.MaxAttempts,
 		&c.ExpiresAt, &c.ConsumedAt, &ip, &c.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -149,6 +162,9 @@ func scanLoginCode(row rowScanner, failMsg string) (*model.LoginCode, error) {
 	}
 	if ip != nil {
 		c.RequestIP = *ip
+	}
+	if userID != nil {
+		c.UserID = *userID
 	}
 	return &c, nil
 }
@@ -161,6 +177,15 @@ func nullableIP(ip string) any {
 	}
 	return ip
 }
+
+func nullableUserID(id uuid.UUID) any {
+	if id == uuid.Nil {
+		return nil
+	}
+	return id
+}
+
+var _ iamRepo.AtomicLoginCodeRepository = (*LoginCodeRepo)(nil)
 
 // DeleteByEmail, adrese ait kod satırlarını düşürür.
 //

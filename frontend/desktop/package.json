@@ -2,9 +2,21 @@
   "name": "desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Prova employee desktop application",
+  "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "next dev -p 3100",
-    "build": "next build"
+    "dev:renderer": "next dev --hostname 127.0.0.1 --port 3100",
+    "dev:electron": "npm run build:electron && wait-on http://127.0.0.1:3100 && env -u ELECTRON_RUN_AS_NODE electron .",
+    "dev": "concurrently --kill-others --success first \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "build:renderer": "next build --webpack",
+    "build:electron": "tsc --project tsconfig.electron.json",
+    "build": "npm run build:renderer && npm run build:electron",
+    "test:protocol": "npm run build:electron && node scripts/verify-protocol.cjs",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac --arm64 --x64",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:linux": "npm run build && electron-builder --linux --x64",
+    "test:security": "npm run build:electron && node scripts/verify-security.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -24,7 +36,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "electron": "44.2.0",
+    "electron-builder": "^26.15.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.1.0"
   }
 }

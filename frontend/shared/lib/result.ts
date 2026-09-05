@@ -15,7 +15,7 @@ export type ResultCriterion = {
     time: string
     text: string
   }
-  /** Filled in when a trainer has overridden the score. */
+  /** Filled in when the org admin has overridden the score. */
   override?: {
     newStatus: RubricStatus
     reason: string

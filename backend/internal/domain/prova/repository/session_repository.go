@@ -20,6 +20,8 @@ type SessionRepository interface {
 	// eşzamanlı gönderim aynı index'i alabilir ve alıntı doğrulaması yanlış
 	// sıraya bakardı.
 	AppendTurn(ctx context.Context, scope Scope, turn *model.Turn) error
+	FindTurnByRequestID(ctx context.Context, scope Scope, sessionID, requestID uuid.UUID, role model.TurnRole) (*model.Turn, error)
+	DeleteTurn(ctx context.Context, scope Scope, sessionID, turnID uuid.UUID) error
 	ListTurns(ctx context.Context, scope Scope, sessionID uuid.UUID) ([]*model.Turn, error)
 
 	// UpdateStatus, oturumun evresini değiştirir.

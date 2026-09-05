@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils"
 
 /**
  * The product's core selling point. A visible, set-apart block, not a footnote.
- * Appears on the register screen and on the session briefing screen.
+ * Appears on the register screen, on the last desktop intro screen, and on the
+ * session briefing screen.
  */
 function PrivacyNotice({ className }: { className?: string }) {
   return (

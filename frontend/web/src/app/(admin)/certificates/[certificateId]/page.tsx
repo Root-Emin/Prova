@@ -6,6 +6,7 @@ import { notFound } from "next/navigation"
 import { ArrowLeft, Printer } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ProvaMark } from "@/components/prova/logo"
 import { ResultView } from "@/components/prova/result/result-view"
 import { sessionDetails } from "../../sessions/details"
 import { certificateStatusLabel, certificates } from "../mock"
@@ -41,10 +42,13 @@ export default function CertificatePage({
 
       <section className="rounded-lg border border-line-strong bg-card px-5 py-4">
         <div className="prova-yazdirma-basligi mb-3">
-          <span className="font-heading text-lg text-primary">Prova</span>
-          <span className="prova-meta ml-2 uppercase">
-            Anadolu Katılım Bankası · yetkinlik sertifikası
-          </span>
+          <div className="flex items-center gap-2">
+            <ProvaMark size="md" />
+            <span className="font-heading text-lg text-primary">Prova</span>
+            <span className="prova-meta uppercase">
+              Anadolu Katılım Bankası · yetkinlik sertifikası
+            </span>
+          </div>
         </div>
 
         <div className="flex items-start justify-between gap-8">

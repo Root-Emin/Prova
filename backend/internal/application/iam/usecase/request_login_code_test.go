@@ -33,7 +33,6 @@ func testAuthConfig() config.AuthConfig {
 		MaxRequestsPerIP:    20,
 		RateLimitWindow:     time.Hour,
 		MinResponseTime:     400 * time.Millisecond,
-		SelfSignup:          true,
 	}
 }
 
@@ -56,6 +55,12 @@ func newRequestFixture(t *testing.T, cfg config.AuthConfig, users *fakeUserRepo)
 		sender:  newFakeSender(),
 		limiter: newFakeLimiter(),
 		clock:   time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC),
+	}
+	for _, user := range users.byID {
+		if user.EmailVerifiedAt == nil {
+			verifiedAt := f.clock.Add(-time.Hour)
+			user.EmailVerifiedAt = &verifiedAt
+		}
 	}
 	f.uc = NewRequestLoginCodeUseCase(RequestDeps{
 		Users:   f.users,
@@ -94,12 +99,10 @@ func TestRequestLoginCode_ResponseIsIdenticalForKnownAndUnknownAddress(t *testin
 	assert.Equal(t, knownResp, unknownResp, "the response body must not reveal account existence")
 }
 
-// Under invitation-only provisioning the unknown address gets no mail, but must
+// Registration is separate, so an unknown address gets no login mail but must
 // still get the same answer after the same delay.
-func TestRequestLoginCode_UnknownAddressIsSilentWithoutSelfSignup(t *testing.T) {
+func TestRequestLoginCode_UnknownAddressIsSilent(t *testing.T) {
 	cfg := testAuthConfig()
-	cfg.SelfSignup = false
-
 	f := newRequestFixture(t, cfg, newFakeUserRepo())
 
 	resp, err := f.uc.Execute(context.Background(),

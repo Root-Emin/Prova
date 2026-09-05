@@ -3,8 +3,10 @@
 // Çalıştırma: go run ./cmd/seed
 //
 // Betik yeniden çalıştırılabilir: her varlık sabit bir kimlikle yazılır ve
-// mevcutsa üzerine yazılmaz. Doğrulama betiği bu kimliklere dayanıyor, ve
-// her çalıştırmada yeni kimlik üretmek onları kullanılamaz hâle getirirdi.
+// mevcutsa üzerine yazılmaz. Yalnızca bilinen eski GPT LLM seed profilleri,
+// kararlaştırılmış Qwen stack'e yeni sürüm olarak yükseltilir. Doğrulama betiği bu
+// kimliklere dayanıyor, ve her çalıştırmada yeni kimlik üretmek onları
+// kullanılamaz hâle getirirdi.
 package main
 
 import (
@@ -158,9 +160,9 @@ func seedIdentity(ctx context.Context, db *pgxpool.Pool) error {
 		},
 		{
 			name:        "trainee",
-			description: "Yayınlanmış içeriği oynar, kendi puanını görür",
+			description: "Yayınlanmış içerikle oturum oynar; sonuçları kurum yöneticisi inceler",
 			permissions: []string{
-				"content:read", "session:read", "session:write", "score:read",
+				"content:read", "session:read", "session:write",
 			},
 			users: []uuid.UUID{traineeUserID},
 		},
@@ -186,6 +188,14 @@ func seedIdentity(ctx context.Context, db *pgxpool.Pool) error {
 			}
 			if err := roles.Create(ctx, role); err != nil {
 				return fmt.Errorf("rol %s: %w", spec.name, err)
+			}
+		}
+		// Seed tekrar çalıştırıldığında kaldırılmış bir yetki eski veritabanında
+		// kalmamalı. Çalışan rolünün sonuç okuma yetkisi özellikle burada geri
+		// alınır; yeni oturum sonuçları yalnızca yönetici paneline aittir.
+		if spec.name == "trainee" {
+			if err := roles.RemovePermission(ctx, role.ID, "score:read"); err != nil {
+				return fmt.Errorf("izin trainee/score:read kaldırılırken: %w", err)
 			}
 		}
 		for _, permission := range spec.permissions {

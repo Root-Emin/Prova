@@ -273,6 +273,9 @@ enum LLMTier {
 	STRONG
 }
 type Mutation {
+	register(input: RegisterInput!): RegisterPayload!
+	requestEmailVerificationCode(input: RequestEmailVerificationCodeInput!): RequestEmailVerificationCodePayload!
+	verifyEmail(input: VerifyEmailInput!): VerifyEmailPayload!
 	requestLoginCode(input: RequestLoginCodeInput!): RequestLoginCodePayload!
 	verifyLoginCode(input: VerifyLoginCodeInput!): AuthPayload!
 	verifyMagicLink(input: VerifyMagicLinkInput!): AuthPayload!
@@ -336,6 +339,28 @@ type Query {
 }
 input RefreshTokenInput {
 	refreshToken: String!
+}
+input RegisterInput {
+	email: String!
+	firstName: String!
+	lastName: String!
+}
+type RegisterPayload {
+	registered: Boolean!
+	email: String!
+	expiresInSeconds: Int!
+	resendAfterSeconds: Int!
+}
+input RequestEmailVerificationCodeInput {
+	email: String!
+}
+type RequestEmailVerificationCodePayload {
+	"""
+	İstek kabul edildi; hesap varlığı veya doğrulama durumu hakkında sinyal taşımaz.
+	"""
+	sent: Boolean!
+	expiresInSeconds: Int!
+	resendAfterSeconds: Int!
 }
 input RequestLoginCodeInput {
 	email: String!
@@ -450,8 +475,8 @@ type Score {
 	"""
 	model: String!
 	"""
-	Skor ezme kaydı. Yetkisiz kullanıcıda null döner: çalışan puanını görür,
-	ezilip ezilmediğini görmez.
+	Skor ezme kaydı. Yetkisiz kullanıcıda null döner; çalışan sonuçları
+	göremediği için bu alan yalnızca yetkili yönetici sorgularında anlamlıdır.
 	"""
 	override: ScoreOverride @permission(requires: "score:override")
 	createdAt: Time!
@@ -475,7 +500,10 @@ type Session {
 	rubric: DocumentRef!
 	character: DocumentRef!
 	turns: [Turn!]!
-	score: Score
+	"""
+	Sonuç yalnızca puan okuma yetkisi olan kurum yöneticilerine açılır.
+	"""
+	score: Score @permission(requires: "score:read")
 	startedAt: Time!
 	endedAt: Time
 }
@@ -506,9 +534,9 @@ type SessionEvent {
 	"""
 	progress: Int
 	"""
-	SCORE_READY için tamamlanmış puan.
+	SCORE_READY için tamamlanmış puan; yalnızca sonuç okuma yetkisi olan yöneticilere iletilir.
 	"""
-	score: Score
+	score: Score @permission(requires: "score:read")
 	occurredAt: Time!
 }
 enum SessionEventType {
@@ -614,6 +642,14 @@ enum UserStatus {
 	Kalıcı silme işi çalışmış; kişisel veri artık yok.
 	"""
 	DELETED
+}
+input VerifyEmailInput {
+	email: String!
+	code: String!
+}
+type VerifyEmailPayload {
+	verified: Boolean!
+	verifiedAt: Time!
 }
 input VerifyLoginCodeInput {
 	email: String!
