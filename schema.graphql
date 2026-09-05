@@ -1,0 +1,632 @@
+# Prova GraphQL şeması (üretilmiş dosya).
+#
+# Elle düzenlemeyin. Kaynak: backend/graph/schema.graphqls
+# Yeniden üretmek için: cd backend && go run ./cmd/schema -out ../schema.graphql
+
+"""
+Geçerli bir oturum token'ı ister.
+
+Şema seviyesinde uygulanır, middleware'de değil: kod isteme ve kod doğrulama
+mutation'ları token'sız çağrılmak zorundadır, ve HTTP seviyesinde bir kapı
+bunu ayırt edemez.
+"""
+directive @auth on FIELD_DEFINITION | OBJECT
+"""
+Adı verilen izni ister.
+
+Yetki yoksa hata fırlatılmaz, alan null döner. Böylece bir kullanıcının
+göremediği tek alan sorgunun tamamını patlatmaz — puanı görebilen ama ezme
+kaydını göremeyen bir çalışan, puanını yine de görür. Nullable olmayan
+alanlarda null döndürmek GraphQL'de geçersiz olduğu için oralarda hata
+döner.
+"""
+directive @permission(requires: String!) on FIELD_DEFINITION
+type AuditEntry {
+	id: UUID!
+	action: String!
+	resourceType: String!
+	resourceId: String!
+	userId: UUID
+	metadata: JSON
+	ipAddress: String
+	createdAt: Time!
+}
+type AuthPayload {
+	accessToken: String!
+	"""
+	Rotasyonlu yenileme zincirinin bu andaki halkası.
+	"""
+	refreshToken: String!
+	expiresAt: Time!
+	organizationId: UUID!
+	user: User!
+	device: PairedDevice
+}
+type Character {
+	id: UUID!
+	lineageId: UUID!
+	version: Int!
+	status: DocumentStatus!
+	name: String!
+	"""
+	Karakterin kim olduğu. Sistem prompt'una olduğu gibi girer.
+	"""
+	persona: String!
+	behaviorRules: [String!]!
+	difficulty: Difficulty!
+	"""
+	Karakterin sakladığı bilgiler. Çalışan doğru soruyu sorarsa açılır;
+	prompt'a 'bunları kendiliğinden söyleme' talimatıyla girer.
+	"""
+	hiddenFacts: [String!]!
+	createdAt: Time!
+	publishedAt: Time
+}
+input CharacterInput {
+	name: String!
+	persona: String!
+	behaviorRules: [String!]!
+	difficulty: Difficulty!
+	hiddenFacts: [String!]
+}
+type Criterion {
+	key: String!
+	title: String!
+	description: String!
+	weight: Float!
+	maxPoints: Float!
+	"""
+	Zorunlu kriter. Düşerse toplam puan ne olursa olsun sonuç KALDI.
+	"""
+	mandatory: Boolean!
+	"""
+	Karaktere talimat olarak verilen tuzak. KVKK senaryolarında karakter bunu
+	kullanarak çalışandan başkasının kişisel verisini istemeye çalışır.
+	"""
+	trap: String
+}
+input CriterionInput {
+	key: String!
+	title: String!
+	description: String!
+	weight: Float!
+	maxPoints: Float!
+	mandatory: Boolean!
+	trap: String
+}
+type CriterionScore {
+	criterionKey: String!
+	title: String!
+	weight: Float!
+	mandatory: Boolean!
+	points: Float!
+	maxPoints: Float!
+	rationale: String!
+	"""
+	Modelin gerekçe olarak gösterdiği transkript alıntısı.
+	"""
+	quote: String!
+	"""
+	Alıntının geldiği konuşma sırası.
+	"""
+	turnIndex: Int
+	"""
+	Alıntının o sıranın metninde gerçekten bulunup bulunmadığı. Uydurma alıntı
+	ürünün güvenilirliğini bitirir; sessizce geçilmez.
+	"""
+	quoteVerified: Boolean!
+}
+"""
+KVKK erişim hakkının karşılığı: kullanıcıya ait her şey tek belgede.
+"""
+type DataExport {
+	exportedAt: Time!
+	user: User!
+	devices: [Device!]!
+	sessions: [Session!]!
+	auditLog: [AuditEntry!]!
+	"""
+	Ham JSON gövdesi; istemci bunu dosya olarak indirir.
+	"""
+	document: JSON!
+}
+type DeletionStatus {
+	requestedAt: Time
+	scheduledAt: Time
+	"""
+	Geri alınabilir mi. Kalıcı silme çalıştıktan sonra false.
+	"""
+	cancellable: Boolean!
+}
+type Device {
+	id: UUID!
+	name: String!
+	platform: DevicePlatform!
+	lastSeenAt: Time!
+	revokedAt: Time
+	"""
+	Anahtar çifti kayıtlı mı. Değilse cihaz yalnızca eski parmak izi eşleşmesiyle tanınır.
+	"""
+	hasPublicKey: Boolean!
+	createdAt: Time!
+}
+"""
+Cihazın imzalaması gereken tek kullanımlık meydan okuma.
+"""
+type DeviceChallenge {
+	challenge: String!
+	expiresAt: Time!
+}
+input DeviceChallengeInput {
+	email: String!
+	fingerprint: String!
+}
+input DeviceInput {
+	"""
+	Makinenin parmak izi. Sunucuda hash'lenerek saklanır; düz metin tutulmaz.
+	"""
+	fingerprint: String!
+	name: String
+	platform: String
+	"""
+	Cihazın ürettiği açık anahtar (base64, Ed25519). Özel anahtar işletim
+	sisteminin güvenli deposunda kalır ve sunucuya hiç gelmez.
+	"""
+	publicKey: String
+}
+enum DevicePlatform {
+	WINDOWS
+	MACOS
+	LINUX
+	WEB
+	UNKNOWN
+}
+enum Difficulty {
+	LOW
+	MEDIUM
+	HIGH
+	EXTREME
+}
+"""
+Bir oturumdan, oynandığı belgenin tam sürümüne işaret eden bağ.
+
+Yalnızca soy kimliğini tutan bir referans, sonradan yayınlanan sürüme sessizce
+kayardı; sertifikasyon iddiasının dayandığı şey tam olarak bunun olmamasıdır.
+"""
+type DocumentRef {
+	lineageId: UUID!
+	versionId: UUID!
+	version: Int!
+}
+enum DocumentStatus {
+	"""
+	Yerinde düzenlenebilir; hiçbir oturum referans veremez.
+	"""
+	DRAFT
+	"""
+	Donmuş ve oynanabilir.
+	"""
+	PUBLISHED
+	"""
+	Donmuş ve yeni oturumlardan çekilmiş. Mevcut referanslar geçerli kalır.
+	"""
+	ARCHIVED
+}
+scalar JSON
+"""
+Profili canlıya almadan tek seferlik deneme sonucu.
+"""
+type LLMProbeResult {
+	profileId: UUID!
+	model: String!
+	output: String!
+	latencyMs: Int!
+	inputTokens: Int!
+	outputTokens: Int!
+	costUsd: Float!
+	error: String
+}
+type LLMProfile {
+	id: UUID!
+	lineageId: UUID!
+	version: Int!
+	status: DocumentStatus!
+	tier: LLMTier!
+	provider: String!
+	baseUrl: String!
+	"""
+	Model kimliği. Koda gömülmez; çalışma anında değiştirilebilir.
+	"""
+	model: String!
+	temperature: Float!
+	topP: Float!
+	maxTokens: Int!
+	"""
+	Yöneticinin eklediği sistem prompt eki. Sabit guardrail metnini ezemez:
+	guardrail prompt derlenirken her zaman en başa gelir.
+	"""
+	systemPromptSuffix: String!
+	inputCostPer1K: Float!
+	outputCostPer1K: Float!
+	createdAt: Time!
+}
+input LLMProfileInput {
+	tier: LLMTier!
+	provider: String!
+	baseUrl: String!
+	model: String!
+	temperature: Float!
+	topP: Float!
+	maxTokens: Int!
+	systemPromptSuffix: String
+	inputCostPer1K: Float!
+	outputCostPer1K: Float!
+}
+enum LLMTier {
+	"""
+	Her konuşma sırasında karakteri canlandırır.
+	"""
+	FAST
+	"""
+	Oturum sonunda rubriğe göre puanlar.
+	"""
+	STRONG
+}
+type Mutation {
+	requestLoginCode(input: RequestLoginCodeInput!): RequestLoginCodePayload!
+	verifyLoginCode(input: VerifyLoginCodeInput!): AuthPayload!
+	verifyMagicLink(input: VerifyMagicLinkInput!): AuthPayload!
+	requestDeviceChallenge(input: DeviceChallengeInput!): DeviceChallenge!
+	refreshToken(input: RefreshTokenInput!): AuthPayload!
+	logout: Boolean! @auth
+	revokeDevice(deviceId: UUID!): Boolean! @auth
+	createCharacter(input: CharacterInput!): Character! @auth @permission(requires: "content:write")
+	updateCharacter(lineageId: UUID!, input: CharacterInput!): Character! @auth @permission(requires: "content:write")
+	publishCharacter(lineageId: UUID!, version: Int!): Character! @auth @permission(requires: "content:publish")
+	createScenario(input: ScenarioInput!): Scenario! @auth @permission(requires: "content:write")
+	updateScenario(lineageId: UUID!, input: ScenarioInput!): Scenario! @auth @permission(requires: "content:write")
+	publishScenario(lineageId: UUID!, version: Int!): Scenario! @auth @permission(requires: "content:publish")
+	createRubric(input: RubricInput!): Rubric! @auth @permission(requires: "content:write")
+	updateRubric(lineageId: UUID!, input: RubricInput!): Rubric! @auth @permission(requires: "content:write")
+	publishRubric(lineageId: UUID!, version: Int!): Rubric! @auth @permission(requires: "content:publish")
+	startSession(input: StartSessionInput!): Session! @auth
+	submitTurn(input: SubmitTurnInput!): Turn! @auth
+	endSession(sessionId: UUID!): Session! @auth
+	overrideScore(input: OverrideScoreInput!): Score! @auth @permission(requires: "score:override")
+	updateLLMProfile(lineageId: UUID!, input: LLMProfileInput!): LLMProfile! @auth @permission(requires: "llm:write")
+	createLLMProfile(input: LLMProfileInput!): LLMProfile! @auth @permission(requires: "llm:write")
+	publishLLMProfile(lineageId: UUID!, version: Int!): LLMProfile! @auth @permission(requires: "llm:write")
+	testLLMProfile(input: TestLLMProfileInput!): LLMProbeResult! @auth @permission(requires: "llm:write")
+	updateProfile(input: UpdateProfileInput!): User! @auth
+	exportMyData: DataExport! @auth
+	requestAccountDeletion: DeletionStatus! @auth
+	cancelAccountDeletion: DeletionStatus! @auth
+}
+input OverrideScoreInput {
+	scoreId: UUID!
+	total: Float!
+	passed: Boolean!
+	reason: String!
+}
+type PairedDevice {
+	id: UUID!
+	name: String!
+	platform: DevicePlatform!
+	"""
+	Bu makineden ilk giriş. Yeni cihaz bildirimini tetikleyen de budur.
+	"""
+	isNew: Boolean!
+}
+type Query {
+	me: User @auth
+	myDevices: [Device!]! @auth
+	mySessions(limit: Int = 20, offset: Int = 0): [Session!]! @auth
+	session(id: UUID!): Session @auth
+	scenarios(publishedOnly: Boolean = true): [Scenario!]! @auth
+	scenario(lineageId: UUID!, version: Int): Scenario @auth
+	characters(publishedOnly: Boolean = true): [Character!]! @auth
+	character(lineageId: UUID!, version: Int): Character @auth
+	rubrics(publishedOnly: Boolean = true): [Rubric!]! @auth
+	rubric(lineageId: UUID!, version: Int): Rubric @auth
+	llmProfiles: [LLMProfile!]! @auth @permission(requires: "llm:read")
+	routingStats(from: Time, to: Time): RoutingStats! @auth @permission(requires: "routing:read")
+	routingRecords(sessionId: UUID, limit: Int = 50): [RoutingRecord!]! @auth @permission(requires: "routing:read")
+	auditLog(limit: Int = 50, offset: Int = 0): [AuditEntry!]! @auth @permission(requires: "audit:read")
+	deletionStatus: DeletionStatus @auth
+}
+input RefreshTokenInput {
+	refreshToken: String!
+}
+input RequestLoginCodeInput {
+	email: String!
+}
+"""
+Kod isteme yanıtı.
+
+Adresin bir hesaba ait olup olmadığına dair hiçbir sinyal taşımaz: kayıtlı
+adres, bilinmeyen adres ve limitlenmiş adres için aynı gövde döner.
+"""
+type RequestLoginCodePayload {
+	"""
+	Her zaman true. 'İstek kabul edildi' demektir, 'e-posta çıktı' değil.
+	"""
+	sent: Boolean!
+	expiresInSeconds: Int!
+	resendAfterSeconds: Int!
+}
+type RoutingRecord {
+	id: UUID!
+	sessionId: UUID
+	tier: LLMTier!
+	"""
+	Bu kademeyi seçen kural.
+	"""
+	rule: String!
+	model: String!
+	latencyMs: Int!
+	inputTokens: Int!
+	outputTokens: Int!
+	costUsd: Float!
+	success: Boolean!
+	error: String
+	createdAt: Time!
+}
+"""
+Otomatik dağılımın kanıtı.
+
+Grafik çizilebilir veri üretmeyen bir dağılım iddiası doğrulanamaz; bu sorgu
+o veriyi üretir.
+"""
+type RoutingStats {
+	perTier: [TierStats!]!
+	"""
+	Hızlı kademenin devresi açıkken güçlüye kayan çağrı sayısı.
+	"""
+	failoverCount: Int!
+	totalCostUsd: Float!
+	"""
+	Her çağrı güçlü kademeye gitseydi oluşacak maliyet.
+	"""
+	allStrongCostUsd: Float!
+	savingsPercent: Float!
+}
+type Rubric {
+	id: UUID!
+	lineageId: UUID!
+	version: Int!
+	status: DocumentStatus!
+	name: String!
+	description: String!
+	"""
+	Geçme eşiği, toplam puanın yüzdesi olarak.
+	"""
+	passThreshold: Float!
+	criteria: [Criterion!]!
+	createdAt: Time!
+	publishedAt: Time
+}
+input RubricInput {
+	name: String!
+	description: String!
+	passThreshold: Float!
+	criteria: [CriterionInput!]!
+}
+type Scenario {
+	id: UUID!
+	lineageId: UUID!
+	version: Int!
+	status: DocumentStatus!
+	title: String!
+	context: String!
+	objective: String!
+	characterRef: DocumentRef!
+	rubricRef: DocumentRef!
+	maxTurns: Int!
+	createdAt: Time!
+	publishedAt: Time
+}
+input ScenarioInput {
+	title: String!
+	context: String!
+	objective: String!
+	characterLineageId: UUID!
+	rubricLineageId: UUID!
+	maxTurns: Int!
+}
+type Score {
+	id: UUID!
+	sessionId: UUID!
+	total: Float!
+	maxTotal: Float!
+	passed: Boolean!
+	"""
+	Zorunlu bir kriter düştüyse hangisi olduğu. Toplam puan yeterli olsa bile
+	sonuç KALDI'dır ve nedeni buradadır.
+	"""
+	failedMandatoryKeys: [String!]!
+	criteria: [CriterionScore!]!
+	"""
+	Puanı üreten model kimliği.
+	"""
+	model: String!
+	"""
+	Skor ezme kaydı. Yetkisiz kullanıcıda null döner: çalışan puanını görür,
+	ezilip ezilmediğini görmez.
+	"""
+	override: ScoreOverride @permission(requires: "score:override")
+	createdAt: Time!
+}
+type ScoreOverride {
+	overriddenBy: UUID!
+	reason: String!
+	previousTotal: Float!
+	previousPassed: Boolean!
+	overriddenAt: Time!
+}
+type Session {
+	id: UUID!
+	status: SessionStatus!
+	employeeId: UUID!
+	"""
+	Oturum başlarken dondurulan senaryo sürümü. İçerik sonradan değişse bile
+	oturum kendi sürümüyle puanlanır.
+	"""
+	scenario: DocumentRef!
+	rubric: DocumentRef!
+	character: DocumentRef!
+	turns: [Turn!]!
+	score: Score
+	startedAt: Time!
+	endedAt: Time
+}
+"""
+Oturum olayları için tek kanal.
+
+Union yerine etiketli tek tip kullanılıyor: Next.js ve Electron istemcileri
+şemadan kod üretiyor, ve etiketli tip her iki üreticide de tek bir switch'e
+dönüşürken union her istemcide ayrı tip guard'ları gerektirir.
+"""
+type SessionEvent {
+	sessionId: UUID!
+	type: SessionEventType!
+	"""
+	TRANSCRIPT_CHUNK ve CHARACTER_REPLY için metin.
+	"""
+	text: String
+	"""
+	CHARACTER_REPLY için konuşma sırası.
+	"""
+	turn: Turn
+	"""
+	RUBRIC_SIGNAL için tetiklenen kriter anahtarları.
+	"""
+	signals: [String!]
+	"""
+	SCORING_PROGRESS için 0-100 arası ilerleme.
+	"""
+	progress: Int
+	"""
+	SCORE_READY için tamamlanmış puan.
+	"""
+	score: Score
+	occurredAt: Time!
+}
+enum SessionEventType {
+	TRANSCRIPT_CHUNK
+	RUBRIC_SIGNAL
+	CHARACTER_REPLY
+	SCORING_PROGRESS
+	SCORE_READY
+}
+enum SessionStatus {
+	ACTIVE
+	SCORING
+	COMPLETED
+	ABANDONED
+}
+input StartSessionInput {
+	scenarioLineageId: UUID!
+}
+input SubmitTurnInput {
+	sessionId: UUID!
+	text: String!
+}
+type Subscription {
+	"""
+	Oturumun canlı olay akışı.
+	
+	Sahiplik bağlantı anında doğrulanır: kendi oturumu olmayan bir kullanıcı
+	akışa hiç bağlanamaz, çünkü transkript kişisel veri taşır.
+	"""
+	sessionEvents(sessionId: UUID!): SessionEvent! @auth
+}
+input TestLLMProfileInput {
+	profileLineageId: UUID!
+	prompt: String!
+}
+type TierStats {
+	tier: LLMTier!
+	calls: Int!
+	avgLatencyMs: Float!
+	costUsd: Float!
+	inputTokens: Int!
+	outputTokens: Int!
+}
+scalar Time
+type Turn {
+	index: Int!
+	role: TurnRole!
+	"""
+	Transkriptin kendisi: maskelenmemiş orijinal metin. Maskeleme yalnızca
+	LLM'e giden kopyada yapılır, çünkü puanlama doğruluğu orijinal metne bağlı.
+	"""
+	text: String!
+	"""
+	Bu sırada tetiklenen rubrik kriter anahtarları.
+	"""
+	signals: [String!]!
+	"""
+	LLM'e giden kopyada maskelenen kişisel veri alanı sayısı.
+	"""
+	maskedFieldCount: Int!
+	createdAt: Time!
+}
+enum TurnRole {
+	EMPLOYEE
+	CHARACTER
+}
+scalar UUID
+input UpdateProfileInput {
+	firstName: String
+	lastName: String
+}
+type User {
+	id: UUID!
+	email: String!
+	firstName: String!
+	lastName: String!
+	status: UserStatus!
+	emailVerified: Boolean!
+	"""
+	Token'a yazılan etkin kiracı.
+	"""
+	organizationId: UUID!
+	permissions: [String!]!
+	"""
+	Silme talebinin verildiği an. Doluysa hesap geri alma penceresinde.
+	"""
+	deletionRequestedAt: Time
+	"""
+	Kalıcı silmenin planlandığı an.
+	"""
+	deletionScheduledAt: Time
+	createdAt: Time!
+}
+enum UserStatus {
+	ACTIVE
+	INACTIVE
+	SUSPENDED
+	"""
+	Silme talebi verilmiş, geri alma penceresi içinde.
+	"""
+	PENDING_DELETION
+	"""
+	Kalıcı silme işi çalışmış; kişisel veri artık yok.
+	"""
+	DELETED
+}
+input VerifyLoginCodeInput {
+	email: String!
+	code: String!
+	device: DeviceInput
+	"""
+	Sunucunun verdiği challenge'ın cihaz özel anahtarıyla imzası (base64).
+	Kayıtlı anahtarı olan cihazlarda zorunludur.
+	"""
+	deviceSignature: String
+}
+input VerifyMagicLinkInput {
+	token: String!
+	device: DeviceInput
+	deviceSignature: String
+}

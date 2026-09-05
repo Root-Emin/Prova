@@ -1,513 +1,372 @@
-# masterfabric-go
+# Prova — Backend
 
-<div align="center">
+Kurumsal iletişim eğitimi ve sertifikasyonu. Çalışan, yapay zekâ tarafından
+canlandırılan bir karakterle rol yapar; oturum bittiğinde rubriğe göre
+puanlanır ve puan, transkriptten alınmış doğrulanabilir alıntılara dayanır.
 
-![masterfabric-go Banner](.github/images/banner.png)
-
-![Version](https://img.shields.io/badge/version-0.0.1-blue.svg)
-![Go Version](https://img.shields.io/badge/go-1.26.4-00ADD8?logo=go)
-![License](https://img.shields.io/badge/license-AGPL--v3.0-green.svg)
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
-![Kafka](https://img.shields.io/badge/kafka-enabled-orange.svg?logo=apache-kafka)
-
-**Enterprise-grade, multi-tenant, RBAC-driven SaaS backend platform built with Go and clean/hexagonal architecture.**
-
-[🚀 Quick Start](#quick-start) • [📚 Documentation](#architecture) • [🔒 Security](#security-hardening) • [🤝 Contributing](CONTRIBUTING.md) • [📄 License](LICENSE)
-
-</div>
+Bu depo backend'i içerir. İstemci API'sinin tamamı GraphQL'dir.
 
 ---
 
-## Architecture
-
-- **Domain-Driven Design** with bounded contexts (IAM, Tenant, API Management, Audit)
-- **Clean Architecture**: domain layer has zero external dependencies
-- **Phase 1 Modular Monolith**: single binary, ready for service extraction
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Language | Go 1.26.4 |
-| HTTP Router | Chi |
-| Database | PostgreSQL 16 (via pgx) |
-| Cache | Redis 7 |
-| Message Queue | Apache Kafka (via segmentio/kafka-go) |
-| Migrations | goose |
-| Auth | JWT (golang-jwt) + bcrypt |
-| Observability | OpenTelemetry + Prometheus |
-| Logging | slog (structured JSON) |
-| Validation | go-playground/validator |
-
-## Quick Start
-
-### Prerequisites
-
-- Go 1.26.4+
-- Docker & Docker Compose
-- (Optional) `goose` CLI for manual migration management
-
-### Option 1: Development Mode (Recommended)
-
-Use the repository-root `start.sh` script for hot-reload development:
+## Hızlı başlangıç
 
 ```bash
-# Full stack: infrastructure + migrations + backend + frontend
-../start.sh
+cd backend
 
-# Or step-by-step:
-../start.sh infra      # Start Docker services + run migrations
-../start.sh backend    # Start hot-reload backend (infra must be running)
+# 1. Altyapı (PostgreSQL, MongoDB, Redis, Mailpit)
+docker compose -f deployments/docker-compose.yml up -d postgres mongo redis mailpit
+
+# 2. Şema
+./scripts/migrate.sh up
+
+# 3. Yapılandırma
+cp .env.example .env        # JWT_SECRET ve AUTH_CODE_PEPPER üretin
+#   openssl rand -base64 48   → JWT_SECRET
+#   openssl rand -base64 32   → AUTH_CODE_PEPPER
+
+# 4. Tohum verisi (demo organizasyonu, karakterler, senaryolar, rubrik, LLM profilleri)
+go run ./cmd/seed
+
+# 5. Sunucu
+go run ./cmd/server
 ```
 
-The `start.sh` script:
-- ✅ Starts Docker services (Postgres, Redis, Mongo, Kafka, Kafka UI)
-- ✅ Waits for services to become healthy
-- ✅ Runs database migrations automatically
-- ✅ Starts the server with **hot-reload** (auto-restarts on file changes)
-- ✅ Auto-installs `air` (hot-reload tool) if needed
-- ✅ Stops everything again on Ctrl+C (or `../start.sh stop`)
+Sunucu `:8080`'de açılır. Geliştirmede GraphQL playground `/playground`,
+yakalanan e-postalar `http://localhost:8025` (Mailpit).
 
-**Hot-reload**: Edit any `.go` file and save — the server automatically rebuilds and restarts (~3s).
-
-### Option 2: Manual Setup
+**Gerçek bir LLM olmadan denemek için** sahte sağlayıcıyı kullanın:
 
 ```bash
-# 1. Start infrastructure
-make docker-up
-
-# 2. Run migrations
-make migrate
-
-# 3. Run server
-make run
+go run ./cmd/mockllm -addr :8099 &
+docker exec prova-mongo mongosh --quiet prova --eval \
+  "db.llm_profiles.updateMany({}, {\$set: {base_url: 'http://localhost:8099/v1'}})"
 ```
 
-The server starts on `http://localhost:8080`.
+**Gerçek bir sağlayıcı için** `LLM_API_KEY` verin ve profillerdeki `baseUrl`
+ile `model` alanlarını `updateLLMProfile` mutation'ıyla güncelleyin. Model adı
+ve sağlayıcı koda gömülü değildir; çalışma anında değişir.
 
-### Verify
+---
+
+## Doğrulama
 
 ```bash
-curl http://localhost:8080/health/live
-# {"status":"alive"}
-
-curl http://localhost:8080/health/ready
-# {"status":"ready","services":{"postgres":"healthy","redis":"healthy"}}
-# On failure, service entries show "unhealthy" without internal error details
+./scripts/verify.sh      # 12 gereksinimi mekanik olarak kanıtlar (12/12 PASS bekleniyor)
+./scripts/smoke.sh       # tek kullanıcının yolculuğunu baştan sona yürür
+go build ./... && go vet ./... && go test ./...
 ```
 
-### Development Scripts
+`verify.sh` altyapıyı başlatır, migration'ları uygular, tohum verisini yazar,
+sahte sağlayıcıyı ve sunucuyu ayağa kaldırır, sonra her gereksinimi tek tek
+PASS/FAIL basar. Herhangi biri FAIL ise çıkış kodu 1'dir.
 
-```bash
-../start.sh            # Full stack (infra + migrations + backend + frontend)
-../start.sh backend    # Hot-reload backend only (skip infra)
-../start.sh infra      # Start infrastructure only
-../start.sh migrate    # Run migrations only
-../start.sh stop       # Stop applications and Docker services
-../start.sh status     # Show what is running
-../start.sh logs       # Tail backend + frontend logs
-../start.sh clean      # Stop everything, remove volumes, clean artifacts
-../start.sh help       # Show help
+Gereksinim → dosya → doğrulama komutu eşlemesi için
+[docs/TRACEABILITY.md](docs/TRACEABILITY.md).
+
+---
+
+## Mimari
+
+Hexagonal katmanlama korunuyor:
+
+```
+cmd/
+  server/     HTTP sunucusu ve bağımlılık grafiği
+  seed/       tohum verisi
+  verify/     12 gereksinimin mekanik doğrulaması
+  smoke/      uçtan uca duman testi
+  schema/     GraphQL şemasının SDL olarak dışa aktarımı
+  mockllm/    OpenAI-uyumlu sahte sağlayıcı (test altyapısı)
+  configdump/ güvenlikle ilgili varsayılanların makine okunur çıktısı
+
+graph/                     GraphQL şeması, üretilmiş kod ve resolver'lar
+internal/
+  domain/prova/            Prova alan modeli: belgeler, sürümleme, prompt,
+                           alıntı doğrulama, LLM portu
+  domain/iam/              kimlik: kullanıcı, cihaz, giriş kodu, magic link,
+                           refresh token
+  domain/audit/            denetim kaydı portu
+  application/prova/       oturum akışı, LLM geçidi, kural tabanlı yönlendirici
+  application/iam/         giriş, cihaz, hesap yaşam döngüsü
+  infrastructure/          PostgreSQL, MongoDB, LLM istemcisi, GraphQL sunucusu,
+                           e-posta adaptörleri, zamanlanmış işler
+  shared/                  yapılandırma, hata, ara katman, önbellek, kayıt
 ```
 
-## API Endpoints
+### İki veritabanı, iki soru
 
-### Auth (public)
-- `POST /api/v1/auth/register` - Register a new user
-- `POST /api/v1/auth/login` - Login and receive JWT
+**PostgreSQL** "bu kim?" sorusunu yanıtlar: kullanıcılar, cihazlar, roller,
+token'lar, denetim kaydı.
 
-### Users (authenticated + RBAC)
-- `GET /api/v1/me` - Get current user
-- `GET /api/v1/users` - List users (paginated) — requires `user:read`
-- `GET /api/v1/users/{id}` - Get user by ID — requires `user:read`
-- `POST /api/v1/roles/assign` - Assign role to user — requires `user:write`
+**MongoDB** "ne oynandı ve nasıl puanlandı?" sorusunu yanıtlar: karakterler,
+senaryolar, rubrikler, LLM profilleri, oturumlar, transkriptler, puanlar,
+yönlendirme kayıtları.
 
-### Organizations (authenticated + RBAC)
-- `POST /api/v1/organizations` - Create organization — requires `org:write`
-- `GET /api/v1/organizations` - List organizations — requires `org:read`
-- `GET /api/v1/organizations/{orgId}` - Get organization — requires `org:read`
+Ayrım keskin tutuluyor. İkisi karıştığında ortaya, ne kimliği ne içeriği
+doğru modelleyen tek bir şema çıkar.
 
-### Apps (authenticated + RBAC)
-- `POST /api/v1/organizations/{orgId}/apps` - Create app — requires `app:write`
-- `GET /api/v1/organizations/{orgId}/apps` - List apps — requires `app:read`
-- `GET /api/v1/organizations/{orgId}/apps/{appId}` - Get app — requires `app:read`
+### Sürümleme
 
-### API Keys (authenticated + RBAC)
-- `POST /api/v1/organizations/{orgId}/apps/{appId}/keys` - Create API key — requires `app:write`
-- `GET /api/v1/organizations/{orgId}/apps/{appId}/keys` - List API keys — requires `app:read`
-- `DELETE /api/v1/organizations/{orgId}/apps/{appId}/keys/{keyId}` - Revoke key — requires `app:write`
+İçerik belgeleri (karakter, senaryo, rubrik, LLM profili) sürümlenir ve
+yayınlandıktan sonra **değişmez**. Düzenleme yeni sürüm yaratır; soy kimliği
+sabit kalır. Kural depo seviyesinde zorlanır: `UpdateDraft` sorgusu
+`status: draft` koşulunu taşır, dolayısıyla yayınlanmış bir belgeye güncelleme
+hiç eşleşmez.
 
-### Endpoints (authenticated + RBAC)
-- `POST /api/v1/organizations/{orgId}/apps/{appId}/endpoints` - Define endpoint — requires `endpoint:write`
-- `GET /api/v1/organizations/{orgId}/apps/{appId}/endpoints` - List endpoints — requires `endpoint:read`
-- `GET /api/v1/organizations/{orgId}/apps/{appId}/endpoints/{endpointId}` - Get endpoint — requires `endpoint:read`
-- `POST /api/v1/organizations/{orgId}/apps/{appId}/endpoints/{endpointId}/retire` - Retire endpoint — requires `endpoint:write`
-- `PUT /api/v1/organizations/{orgId}/apps/{appId}/endpoints/{endpointId}/policy` - Update policy — requires `endpoint:write`
-- `GET /api/v1/organizations/{orgId}/apps/{appId}/endpoints/{endpointId}/policy` - Get policy — requires `endpoint:read`
+Oturum başlarken senaryo, karakter ve rubrik **sürüm numaraları** oturum
+belgesine yazılır. İçerik yarın değişse bile oturum kendi sürümüyle puanlanır.
+Sertifikasyon iddiası tam olarak buna dayanır.
 
-### Audit Logs (authenticated + RBAC)
-- `GET /api/v1/organizations/{orgId}/audit-logs` - Org audit logs — requires `org:read`
-- `GET /api/v1/users/{userId}/audit-logs` - User audit logs — requires `org:read`
+### İki LLM kademesi
 
-### Observability
-- `GET /health/live` - Liveness probe
-- `GET /health/ready` - Readiness probe
-- `GET /metrics` - Prometheus metrics
+- **Hızlı** kademe her konuşma sırasında karakteri canlandırır. Gecikme burada
+  kullanıcı deneyiminin kendisidir.
+- **Güçlü** kademe oturum sonunda rubriğe göre puanlar. Burada gecikme
+  önemsiz, doğruluk her şeydir.
 
-### Real-time (WebSocket)
-- `GET /api/v1/ws?token=<jwt>` - WebSocket upgrade for live domain event delivery
+Yönlendirme kuralları sırayla değerlendirilir, ilk eşleşen kazanır:
 
-**Required headers:** `X-Organization-ID`, `X-App-ID`  
-**Auth:** JWT via `?token=` query parameter (browser-friendly) or `Authorization: Bearer` header  
-**Permission:** `app:read`
+| # | Kural | Kademe | Neden |
+|---|-------|--------|-------|
+| 1 | `scoring` | güçlü | Puan bir sertifikanın dayanağı. |
+| 2 | `mandatory_signal` | güçlü | Kararın sonucu doğrudan KALDI olabilir. |
+| 3 | `failover` | güçlü | Hızlı kademenin devresi açık; oturum kesilmemeli. |
+| 4 | `long_input` | güçlü | Hızlı modeller uzun bağlamda bozulur. |
+| 5 | `default` | hızlı | Olağan yol; tasarrufun tamamı buradan gelir. |
 
-```javascript
-const ws = new WebSocket(
-  "ws://localhost:8080/api/v1/ws?token=" + jwt,
-  [],
-);
-// Set headers via a WS client library; browsers require ?token= query param
+Her karar kaydedilir — başarısızlar dâhil. `routingStats` sorgusu kademe
+başına çağrı, gecikme, maliyet ve "hepsi güçlüye gitseydi" karşılaştırmasını
+döndürür.
+
+### Guardrail
+
+Karakter prompt'unun en başındaki sabit metin koda gömülüdür ve yöneticinin
+değiştirdiği hiçbir metinle ezilemez. İçeriği: karakter rolden çıkmaz, yapay
+zekâ olduğunu söylemez, gerçek kişisel veri üretmez, çalışana doğru prosedürü
+söylemez, hakaret üretmez.
+
+Konumu tek başına yeterli bir savunma değildir; metnin kendisi de kendisini
+ezmeye çalışan talimatları yok saymayı emreder. İkisi birlikte çalışır.
+
+---
+
+## GraphQL
+
+Tek uç: `POST /graphql`. Abonelikler aynı yolda WebSocket üzerinden
+(`graphql-transport-ws`). REST yalnızca `/health/live`, `/health/ready` ve
+`/metrics` için kalmıştır.
+
+Şema: [`graph/schema.graphqls`](graph/schema.graphqls).
+İstemci kod üretimi için SDL: [`../schema.graphql`](../schema.graphql)
+(`go run ./cmd/schema -out ../schema.graphql`).
+
+### İki directive
+
+```graphql
+directive @auth on FIELD_DEFINITION | OBJECT
+directive @permission(requires: String!) on FIELD_DEFINITION
 ```
 
-**Client protocol:**
+`@auth` alan bazındadır, middleware değil: kod isteme ve kod doğrulama
+mutation'ları token'sız çağrılmak zorundadır.
 
-```json
-{ "action": "subscribe",   "channel": "api-management" }
-{ "action": "unsubscribe", "channel": "tenant" }
-{ "action": "ping" }
-```
+`@permission` yetki yoksa **nullable alanda null**, nullable olmayan alanda
+hata döndürür. Çalışan kendi puanını görebilmeli ama ezilip ezilmediğini
+görmemeli; ezme alanını hata yapmak tüm skor sorgusunu patlatırdı.
 
-**Server push:**
+### Örnekler
 
-```json
-{
-  "type": "endpoint.created",
-  "topic": "masterfabric.api-management",
-  "organization_id": "uuid",
-  "app_id": "uuid",
-  "data": { ... },
-  "timestamp": "2026-07-03T12:00:00Z"
+**Kod iste** (token gerekmez):
+
+```graphql
+mutation {
+  requestLoginCode(input: { email: "calisan@prova.local" }) {
+    sent
+    expiresInSeconds
+    resendAfterSeconds
+  }
 }
 ```
 
-Architecture details: [`docs/WEBSOCKET.md`](docs/WEBSOCKET.md)
+Yanıt, adresin kayıtlı olup olmadığına dair hiçbir sinyal taşımaz.
 
-## Postman Collection
+**Kodu doğrula ve cihaz kaydet**:
 
-A complete Postman collection with **37 requests** and **auto-capturing scripts** is available:
-
-- **Collection**: `postman/masterfabric-go.postman_collection.json`
-- **Environment**: `postman/masterfabric-go-local.postman_environment.json`
-
-### Features
-
-- ✅ **Auto-capture JWT token** from Login → automatically used in all subsequent requests
-- ✅ **Auto-capture IDs**: `user_id`, `org_id`, `app_id`, `endpoint_id`, `api_key_id` from responses
-- ✅ **Variables persist** across sessions (saved to environment)
-- ✅ **Test assertions** on every request (status codes, response validation)
-- ✅ **Negative test cases** (unauthorized, validation errors, not found)
-
-### Usage
-
-1. Import both files into Postman
-2. Select the **"MasterFabric Go - Local"** environment
-3. Run **Login** → token is automatically saved
-4. Run **Create Organization** → `org_id` is auto-captured
-5. Run **Create App** → `app_id` is auto-captured
-6. All subsequent requests use the captured variables automatically
-
-**Endpoints covered**: Health, Auth, Users, Organizations, Apps, API Keys, Endpoints, Policies, RBAC, Audit Logs, Error Scenarios, **Invoke Defined Endpoints**.
-
-### How to Use Defined Endpoints
-
-After defining an endpoint (e.g., `POST /orders` or `GET /products`), you can invoke it through the API gateway:
-
-**Required Headers:**
-- `X-App-ID`: Your application ID (triggers gateway pipeline)
-- `X-Organization-ID`: Your organization ID
-- `Authorization: Bearer <jwt_token>`: JWT token for authenticated requests
-
-**Example: Invoke GET /products**
-```http
-GET /api/v1/products
-Headers:
-  X-App-ID: <your-app-id>
-  X-Organization-ID: <your-org-id>
-  Authorization: Bearer <jwt-token>
-```
-
-**Example: Invoke POST /orders**
-```http
-POST /api/v1/orders
-Headers:
-  X-App-ID: <your-app-id>
-  X-Organization-ID: <your-org-id>
-  Authorization: Bearer <jwt-token>
-  Content-Type: application/json
-Body:
-  {
-    "product_id": "prod-123",
-    "quantity": 2
+```graphql
+mutation {
+  verifyLoginCode(input: {
+    email: "calisan@prova.local"
+    code: "482913"
+    device: {
+      fingerprint: "makine-parmak-izi"
+      name: "Şube PC"
+      platform: "win32"          # Electron process.platform değeri
+      publicKey: "base64-ed25519-acik-anahtar"
+    }
+  }) {
+    accessToken
+    refreshToken
+    organizationId
+    user { id email emailVerified }
+    device { id platform isNew }
   }
+}
 ```
 
-**Gateway Pipeline Flow:**
-1. Gateway checks `X-App-ID` header
-2. Looks up endpoint by method + path
-3. Validates JSON schema (if defined)
-4. Checks RBAC permissions (if policy requires)
-5. Enforces rate limits
-6. Applies interceptors (PII masking, transformations)
-7. Routes to backend service
+Kayıtlı anahtarı olan cihazlarda sonraki girişlerde imza zorunludur:
 
-See the **"Invoke Defined Endpoints"** section in the Postman collection for complete examples including error scenarios.
-
-## Security Hardening
-
-A full security remediation pass was applied on the `security/hardening` branch. The goal was to close confirmed audit findings across the shared platform layer, HTTP surface, deployment defaults, and authorization coverage — without changing the public API contract.
-
-For the complete trust model, accepted risks, and the **Security Controls Registry v0.1**, see **[SECURITY.md](SECURITY.md)**.
-
-### Why these changes were made
-
-| Area | Problem | Fix | Rationale |
-|------|---------|-----|-----------|
-| **Toolchain & dependencies** | Outdated Go stdlib and library versions carried known CVE advisories | Bumped to **Go 1.26.4**; refreshed pgx, chi, validator, and `golang.org/x/*` modules | Closes upstream vulnerability reports at the root cause rather than patching symptoms |
-| **Container images** | Builder/runtime Go mismatch; EOL Alpine; process ran as root | Aligned builder to Go 1.26.4, runtime to **alpine 3.24**, dedicated **non-root** `appuser` | Reduces container escape blast radius and keeps build/runtime toolchains consistent |
-| **Local compose defaults** | Postgres, Redis, and Kafka exposed on `0.0.0.0` with weak default credentials | Ports bind to **loopback** (`127.0.0.1`) by default via `*_HOST_BIND` env vars | Prevents accidental credential exposure on shared or public networks during local development |
-| **5xx error responses** | `response.Error` returned `err.Error()` verbatim, leaking DB/driver details | Generic client message (`an internal error occurred`); full detail logged server-side | Stops internal infrastructure information from reaching untrusted API consumers (CWE-209) |
-| **Database DSN** | Connection string built with `fmt.Sprintf`, breaking on special characters in passwords | Credentials escaped via **`net/url`** | Prevents credential parsing errors and host/db shifting when passwords contain `@`, `:`, `?`, `#`, or `%` (CWE-116) |
-| **Pagination** | Unbounded `page` query param could overflow into a negative SQL `OFFSET` | `page` clamped to **`MaxPage`** (1,000,000) | Blocks integer overflow that could return unintended rows (CWE-190) |
-| **Config parsing** | `DB_MAX_CONNS` / `DB_MIN_CONNS` cast from `int` to `int32` without bounds check | Dedicated **`envOrDefaultInt32`** with 32-bit parse | Prevents silent truncation flagged by static analysis (gosec G115) |
-| **CORS** | `AllowedOrigins: ["*"]` combined with `AllowCredentials: true` — an invalid and unsafe combination | Configurable **`CORS_ALLOWED_ORIGINS`** allow-list; credentials auto-disabled for wildcard or empty list | Stops browsers from accepting overly permissive cross-origin credential flows (CWE-942) |
-| **Request body size** | No global body limit — large payloads could exhaust server memory | **`MAX_BODY_BYTES`** middleware (default **1 MiB**) using `http.MaxBytesReader` | Mitigates memory exhaustion from oversized JSON uploads (CWE-400) |
-| **Readiness probe** | `/health/ready` echoed raw Postgres/Redis error strings | Returns generic **`unhealthy`** markers; logs detail with `slog` | Health endpoints are often public; they must not disclose hostnames or connection errors (CWE-209) |
-| **Outbound HTTP proxy** | Default `http.Client` followed redirects and had no timeout, risking custom header leakage | **No redirect following**, 30s timeout, response body capped at 1 MiB | Prevents `Authorization` or service tokens from being forwarded across hosts on redirect (CWE-522) |
-| **RBAC coverage** | JWT was required but any authenticated user could call admin routes; wildcard permissions in seed data were not honored | **`RequirePermission`** on all admin routes; wildcard-aware matching (`*`, `org:*`, `*:read`) | Ensures state-changing operations require explicit grants, not just a valid token (CWE-306) |
-| **Migration script** | `migrate.sh create NAME` did not sanitize `NAME`, allowing path traversal in filenames | Name restricted to **`[a-zA-Z0-9_]`** | Blocks `../` injection when migration files are created via automation (CWE-22) |
-| **JWT secret default** | Server started silently with `change-me-in-production` | **Startup warning** when the default signing secret is detected | Makes misconfiguration visible before production exposure |
-| **Gateway proxy (gosec G704)** | Intentional SSRF sink for operator-configured backend URLs | Documented as an **accepted risk** in SECURITY.md with audited `#nosec` suppressions | Proxying is a core gateway feature; risk is bounded by RBAC on endpoint creation |
-
-### Verification
-
-Run these checks before merging or deploying:
-
-```bash
-go build ./... && go vet ./... && go test ./...
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...
+```graphql
+mutation { requestDeviceChallenge(input: {
+  email: "calisan@prova.local", fingerprint: "makine-parmak-izi"
+}) { challenge expiresAt } }
 ```
 
-Expected results on the hardened branch:
+Cihaz `challenge` metnini özel anahtarıyla imzalar ve `deviceSignature`
+alanında gönderir.
 
-- All tests pass
-- `govulncheck`: no vulnerabilities found
-- `gosec`: clean (2 intentional, documented suppressions for the gateway HTTP proxy)
+**Oturum oyna**:
 
-### Production checklist
+```graphql
+mutation { startSession(input: { scenarioLineageId: "…" }) { id status } }
 
-Before exposing the API on a production network:
+mutation {
+  submitTurn(input: { sessionId: "…", text: "Merhaba, nasıl yardımcı olabilirim?" }) {
+    index role text signals maskedFieldCount
+  }
+}
 
-1. Set a strong, random **`JWT_SECRET`** (never use the default)
-2. Set explicit **`CORS_ALLOWED_ORIGINS`** (avoid `*`)
-3. Enable **`DB_SSLMODE=require`** (or stricter)
-4. Restrict **`/metrics`** and **`/health/*`** at the network edge
-5. Replace default database credentials in any non-local deployment
-
-## Configuration
-
-All configuration is via environment variables with sensible defaults:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVER_HOST` | `0.0.0.0` | Bind host |
-| `SERVER_PORT` | `8080` | Bind port |
-| `SERVER_READ_TIMEOUT_SECONDS` | `15` | HTTP read timeout |
-| `SERVER_WRITE_TIMEOUT_SECONDS` | `15` | HTTP write timeout |
-| `SERVER_IDLE_TIMEOUT_SECONDS` | `60` | HTTP idle timeout |
-| `MAX_BODY_BYTES` | `1048576` | Maximum request body size (1 MiB) |
-| `CORS_ALLOWED_ORIGINS` | *(empty)* | Comma-separated allowed CORS origins; credentials disabled when empty or `*` |
-| `DB_HOST` | `localhost` | PostgreSQL host |
-| `DB_PORT` | `5432` | PostgreSQL port |
-| `DB_USER` | `masterfabric` | PostgreSQL user |
-| `DB_PASSWORD` | `masterfabric` | PostgreSQL password |
-| `DB_NAME` | `masterfabric` | PostgreSQL database |
-| `DB_SSLMODE` | `disable` | PostgreSQL SSL mode |
-| `DB_MAX_CONNS` | `25` | PostgreSQL connection pool max size |
-| `DB_MIN_CONNS` | `5` | PostgreSQL connection pool min size |
-| `DB_HOST_BIND` | `127.0.0.1` | Docker Compose host bind for Postgres (dev only) |
-| `REDIS_HOST` | `localhost` | Redis host |
-| `REDIS_PORT` | `6379` | Redis port |
-| `REDIS_HOST_BIND` | `127.0.0.1` | Docker Compose host bind for Redis (dev only) |
-| `KAFKA_ENABLED` | `false` | Enable Kafka event bus |
-| `KAFKA_BROKERS` | `localhost:9092` | Kafka broker addresses (comma-separated) |
-| `KAFKA_GROUP_ID` | `masterfabric-go` | Kafka consumer group ID |
-| `KAFKA_NUM_PARTITIONS` | `3` | Default partitions for auto-created topics |
-| `KAFKA_REPLICATION_FACTOR` | `1` | Replication factor for auto-created topics |
-| `KAFKA_HOST_BIND` | `127.0.0.1` | Docker Compose host bind for Kafka (dev only) |
-| `JWT_SECRET` | `change-me-in-production` | JWT signing secret (**change before production**) |
-| `JWT_EXPIRATION_HOURS` | `24` | JWT token lifetime |
-| `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
-| `LOG_FORMAT` | `json` | Log format (json, text) |
-| `WS_ENABLED` | `true` | Enable WebSocket endpoint |
-| `WS_MAX_CONNECTIONS` | `1000` | Maximum concurrent WebSocket connections |
-| `WS_PING_INTERVAL_SECONDS` | `30` | Server ping interval for keepalive |
-| `WS_READ_BUFFER_SIZE` | `1024` | WebSocket read buffer size (bytes) |
-| `WS_WRITE_BUFFER_SIZE` | `1024` | WebSocket write buffer size (bytes) |
-
-## Kafka Event Bus
-
-The project uses an `EventBus` interface (`internal/shared/events/bus.go`) that supports two implementations:
-
-- **In-process bus** (default): channel-based, suitable for local dev and single-instance deployments
-- **Kafka bus**: production-grade, uses `segmentio/kafka-go` with KRaft-mode Kafka (no Zookeeper)
-
-### Enable Kafka
-
-```bash
-# Start infrastructure including Kafka
-make docker-up
-
-# Run with Kafka enabled
-KAFKA_ENABLED=true make run
+mutation { endSession(sessionId: "…") { id status } }
 ```
 
-Kafka UI is available at `http://localhost:8090` for inspecting topics and messages.
+**Puanı oku** (alıntılar ve doğrulama bayrağıyla):
 
-### Topics
-
-| Topic | Bounded Context | Events |
-|-------|----------------|--------|
-| `masterfabric.iam` | IAM | user.registered, user.invited, role.assigned, role.revoked |
-| `masterfabric.tenant` | Tenant | organization.created, app.created, app.updated |
-| `masterfabric.api-management` | API Management | endpoint.created, endpoint.updated, endpoint.retired |
-| `masterfabric.audit` | Audit | (consumers write to audit_logs table) |
-
-Topics are auto-created at startup when `KAFKA_ENABLED=true`.
-
-### Publishing Events from Use Cases
-
-**✅ Events are automatically published** from the following use cases:
-
-- `RegisterUseCase` → `user.registered` (TopicIAM)
-- `AssignRoleUseCase` → `role.assigned` (TopicIAM)
-- `CreateOrgUseCase` → `organization.created` (TopicTenant)
-- `CreateAppUseCase` → `app.created` (TopicTenant)
-- `DefineEndpointUseCase` → `endpoint.created` (TopicAPIManagement)
-- `RetireEndpointUseCase` → `endpoint.retired` (TopicAPIManagement)
-
-The `EventBus` is injected into use cases at startup. Events are automatically serialized into JSON envelopes with metadata (ID, type, source, timestamp).
-
-**Example**: When you create an organization via `POST /api/v1/organizations`, the `organization.created` event is published to Kafka topic `masterfabric.tenant`.
-
-**Verify events**: Use Kafka UI at `http://localhost:8090` or consume directly:
-
-```bash
-docker exec prova-kafka /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:29092 \
-  --topic masterfabric.tenant \
-  --from-beginning
+```graphql
+query {
+  session(id: "…") {
+    status
+    score {
+      total maxTotal passed failedMandatoryKeys model
+      criteria {
+        criterionKey title points maxPoints mandatory
+        rationale quote turnIndex quoteVerified
+      }
+      override { reason previousTotal }   # yetkisiz kullanıcıda null
+    }
+  }
+}
 ```
 
-### Consuming Events
+**Canlı oturum olayları** (WebSocket):
 
-Register handlers at startup in `main.go`:
-
-```go
-eventBus.Subscribe(events.TopicIAM, func(ctx context.Context, event events.Event) error {
-    log.Info("iam event", "event", event)
-    return nil
-})
+```graphql
+subscription {
+  sessionEvents(sessionId: "…") {
+    type          # TRANSCRIPT_CHUNK | RUBRIC_SIGNAL | CHARACTER_REPLY |
+                  # SCORING_PROGRESS | SCORE_READY
+    text progress
+    turn { index role text }
+    score { total passed }
+  }
+}
 ```
 
-## Project Structure
+Bağlantı `connectionParams` içinde `{"Authorization": "Bearer …"}` gönderir;
+token orada doğrulanır ve oturum sahipliği bağlantı anında kontrol edilir.
 
-```
-cmd/server/             - Application entry point
-internal/
-  shared/               - Cross-cutting concerns (config, middleware, errors, events)
-  domain/               - Domain layer (entities, interfaces, domain events)
-    iam/                - Identity & Access Management
-    tenant/             - Tenant & App Management
-    apimanagement/      - API Management
-    audit/              - Audit & Observability
-  application/          - Use cases and DTOs
-  infrastructure/       - External implementations (postgres, redis, http)
-  gateway/              - API Gateway policy pipeline
-  domain/realtime/      - WebSocket room model and hub interface
-  infrastructure/websocket/ - In-memory hub, event bridge, session pumps
-deployments/            - Docker and deployment configs
-docs/                   - Architecture documentation (WEBSOCKET.md)
+**Yönlendirme istatistiği**:
+
+```graphql
+query {
+  routingStats {
+    perTier { tier calls avgLatencyMs costUsd inputTokens outputTokens }
+    failoverCount totalCostUsd allStrongCostUsd savingsPercent
+  }
+}
 ```
 
-## Scripts
+**LLM profilini çalışma anında değiştir ve canlıya almadan dene**:
 
-The `scripts/` directory contains utility scripts for common development tasks:
+```graphql
+mutation {
+  updateLLMProfile(lineageId: "…", input: {
+    tier: FAST, provider: "openai-compatible"
+    baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini"
+    temperature: 0.85, topP: 0.95, maxTokens: 600
+    systemPromptSuffix: "Yanıtlarını kısa tut."
+    inputCostPer1K: 0.00015, outputCostPer1K: 0.0006
+  }) { version status }
+}
 
-### Database Scripts
-
-```bash
-# Run migrations
-./scripts/migrate.sh up          # Apply all pending migrations
-./scripts/migrate.sh down         # Rollback last migration
-./scripts/migrate.sh status       # Show migration status
-./scripts/migrate.sh create NAME  # Create new migration file
-
-# Seed database with initial data
-go run scripts/seed.go            # Seed roles and permissions
+mutation {
+  testLLMProfile(input: { profileLineageId: "…", prompt: "Merhaba, kimsin?" }) {
+    model output latencyMs inputTokens costUsd error
+  }
+}
 ```
 
-### Testing & Quality
+**Hesap yaşam döngüsü**:
 
-```bash
-# Run tests
-./scripts/test.sh                 # Run all tests
-./scripts/test.sh -cover          # Run with coverage report
-./scripts/test.sh ./path          # Run tests in specific path
-
-# Lint code
-./scripts/lint.sh                 # Check code quality
-./scripts/lint.sh -fix            # Auto-fix issues
-
-# Security scans
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...
+```graphql
+mutation { exportMyData { document } }          # KVKK erişim hakkı
+mutation { requestAccountDeletion { scheduledAt cancellable } }
+mutation { cancelAccountDeletion { requestedAt } }
+query    { deletionStatus { requestedAt scheduledAt cancellable } }
 ```
-
-## Make Targets
-
-```bash
-make build          # Build binary
-make run            # Run the server
-make test           # Run tests
-make test-cover     # Run tests with coverage
-make lint           # Run linter
-make migrate        # Run migrations up
-make migrate-down   # Rollback last migration
-make docker-up      # Start Docker services (Postgres, Redis, Kafka, Kafka UI)
-make docker-down    # Stop Docker services
-make clean          # Clean build artifacts
-```
-
-**Note**: For development with hot-reload, use `../start.sh` instead of `make run`.
-
-## License
-
-This project is licensed under the **GNU Affero General Public License v3.0 (AGPL v3.0)**.
-
-See the [LICENSE](LICENSE) file for details.
-
-### License Summary
-
-- ✅ **Free to use** for personal and commercial projects
-- ✅ **Modify** and distribute freely
-- ⚠️ **Copyleft**: If you modify and run this software as a network service, you must make your modified source code available to users
-- 📖 **Full License**: See [LICENSE](LICENSE) file
-
-### For Commercial Use
-
-If you need to use this software in a commercial product without the AGPL copyleft requirements, please contact us for licensing options.
 
 ---
 
-**Copyright © 2025 MasterFabric. All rights reserved.**
+## Ortam değişkenleri
+
+Tam liste ve gerekçeleri için [`.env.example`](.env.example). Yükte olanlar:
+
+| Değişken | Varsayılan | Not |
+|---|---|---|
+| `APP_ENV` | `development` | `production` katı doğrulamayı açar ve introspection'ı kapatır |
+| `JWT_SECRET` | *(dev varsayılanı)* | Üretimde zorunlu; varsayılanla boot durur |
+| `AUTH_CODE_PEPPER` | *(boş)* | Üretimde zorunlu; kod digest'lerinin tek koruması |
+| `MONGO_URI` | `mongodb://localhost:27017` | Üretimde varsayılanla boot durur |
+| `EMAIL_PROVIDER` | `smtp` | `resend`, `smtp`, `none`. Üretimde `none` ile boot durur |
+| `WEB_BASE_URL` | `http://localhost:3000` | Magic link'in açılacağı arayüz |
+| `TOKEN_ACCESS_TTL_SECONDS` | `900` | Kısa; oturum refresh rotasyonuyla sürer |
+| `TOKEN_REFRESH_TTL_SECONDS` | `2592000` | Ailenin toplam ömrü; rotasyon uzatmaz |
+| `TOKEN_MAX_FAILED_ATTEMPTS` | `10` | Eşik aşılınca hesap geçici kilitlenir |
+| `LIFECYCLE_DELETION_GRACE_SECONDS` | `2592000` | Geri alma penceresi; üretimde en az 24 saat |
+| `LLM_API_KEY` / `LLM_API_KEYS` | *(boş)* | Anahtarlar profilde değil env'de |
+| `LLM_STORE_RAW_AUDIO` | `false` | Kapalı kalmalı; aşağıya bakın |
+| `GRAPHQL_MAX_DEPTH` | `12` | Fragment içindeki derinlik de sayılır |
+| `GRAPHQL_MAX_COMPLEXITY` | `500` | |
+| `GRAPHQL_MAX_BATCH` | `5` | |
+
+### Ham ses
+
+**Ham ses backend'e hiç gelmez.** İstemci konuşmayı kendi cihazında metne
+çevirir ve sunucuya yalnızca metin gönderir. `LLM_STORE_RAW_AUDIO` varsayılan
+olarak kapalıdır ve kapalı kalmalıdır: ses kaydı biyometrik veridir, KVKK'da
+özel nitelikli kişisel veri sayılır ve saklanması ayrı bir açık rıza
+gerektirir.
+
+---
+
+## Belgeler
+
+- [docs/TRACEABILITY.md](docs/TRACEABILITY.md) — 12 gereksinim → dosyalar → doğrulama komutu
+- [docs/SECURITY.md](docs/SECURITY.md) — saldırı → savunma
+- [docs/KVKK.md](docs/KVKK.md) — hangi veri nerede, ne kadar saklanıyor, nasıl siliniyor
+- [docs/WEBSOCKET.md](docs/WEBSOCKET.md) — gerçek zamanlı taşıma notları
+
+---
+
+## Devre dışı bırakılan modüller
+
+Bu depo masterfabric-go'dan türedi. Prova'ya ait olmayan üç modül **koddan
+silinmedi ama hiçbir yerden bağlanmıyor**:
+
+- `internal/gateway/`, `internal/infrastructure/gateway/` — API ağ geçidi
+- `internal/{domain,application}/apimanagement/` — dinamik uç yönetimi
+- `internal/infrastructure/kafka/` — olay veri yolu artık süreç içi
+
+Ağ geçidi interceptor'larındaki PII maskeleyici kurtarıldı ve LLM hattına
+taşındı (`internal/infrastructure/llm/pii_masker.go`).
+
+Kafka servisleri compose'da `kafka` profilindedir ve varsayılan stack'te
+başlamaz.

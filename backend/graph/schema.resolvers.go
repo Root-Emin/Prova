@@ -15,6 +15,7 @@ import (
 	"github.com/masterfabric-go/masterfabric/graph/scalar"
 	iamDTO "github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
 	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
+	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
 	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
@@ -272,7 +273,20 @@ func (r *mutationResolver) EndSession(ctx context.Context, sessionID uuid.UUID) 
 
 // OverrideScore is the resolver for the overrideScore field.
 func (r *mutationResolver) OverrideScore(ctx context.Context, input model.OverrideScoreInput) (*model.Score, error) {
-	return nil, notImplemented("overrideScore")
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	score, err := r.OverrideUC.Execute(ctx, scopeOf(v), v.UserID, provaUC.OverrideRequest{
+		ScoreID: input.ScoreID,
+		Total:   input.Total,
+		Passed:  input.Passed,
+		Reason:  input.Reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapScore(score), nil
 }
 
 // UpdateLLMProfile is the resolver for the updateLLMProfile field.

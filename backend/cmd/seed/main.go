@@ -148,6 +148,11 @@ func seedIdentity(ctx context.Context, db *pgxpool.Pool) error {
 				"routing:read", "audit:read",
 				"score:read", "score:override",
 				"session:read", "session:write",
+				// session:read:all, başkasının oturumunu okuma hakkı.
+				// session:read'den ayrı: o hak çalışanda da var ve kendi
+				// oturumunu okumak anlamına geliyor. İkisini aynı ada
+				// bağlamak, her çalışana herkesin transkriptini açardı.
+				"session:read:all",
 			},
 			users: []uuid.UUID{adminUserID},
 		},

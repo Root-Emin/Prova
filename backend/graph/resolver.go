@@ -63,5 +63,6 @@ type Resolver struct {
 	ScenarioUC   *provaUC.ContentUseCase[provaModel.Scenario, *provaModel.Scenario]
 	RubricUC     *provaUC.ContentUseCase[provaModel.Rubric, *provaModel.Rubric]
 	LLMProfileUC *provaUC.LLMProfileUseCase
+	OverrideUC   *provaUC.OverrideScoreUseCase
 	Broker       *realtime.SessionBroker
 }

@@ -310,6 +310,7 @@ func buildDependencies(
 		scenarioUC     *provaUC.ContentUseCase[provaModel.Scenario, *provaModel.Scenario]
 		rubricUC       *provaUC.ContentUseCase[provaModel.Rubric, *provaModel.Rubric]
 		llmProfileUC   *provaUC.LLMProfileUseCase
+		overrideUC     *provaUC.OverrideScoreUseCase
 		gateway        *provaAppService.Gateway
 		broker         *realtime.SessionBroker
 		sessionRepo    *provaMongoRepo.SessionRepo
@@ -352,6 +353,7 @@ func buildDependencies(
 		scenarioUC = provaUC.NewContentUseCase[provaModel.Scenario](scenRepo, auditRecorder, "scenario")
 		rubricUC = provaUC.NewContentUseCase[provaModel.Rubric](rubRepo, auditRecorder, "rubric")
 		llmProfileUC = provaUC.NewLLMProfileUseCase(profileRepo, gateway, auditRecorder)
+		overrideUC = provaUC.NewOverrideScoreUseCase(scoreRepo, sessionRepo, rubRepo, auditRecorder)
 		sessionUC = provaUC.NewSessionUseCase(provaUC.SessionDeps{
 			Devices:    deviceRepo,
 			Sessions:   sessionRepo,
@@ -427,6 +429,7 @@ func buildDependencies(
 		ScenarioUC:     scenarioUC,
 		RubricUC:       rubricUC,
 		LLMProfileUC:   llmProfileUC,
+		OverrideUC:     overrideUC,
 		Broker:         broker,
 	}
 	deps.GraphQLHandler = infraGQL.NewServer(infraGQL.ServerConfig{
