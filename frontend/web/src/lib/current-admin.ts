@@ -7,7 +7,7 @@
  */
 export const currentAdmin = {
   id: "k-1041",
-  name: "Elif Şahin",
-  email: "elif.sahin@akbank-egitim.tr",
-  title: "Çağrı merkezi müdürü",
+  name: "Demo Yönetici",
+  email: "yonetici@prova.local",
+  title: "Kurum yöneticisi",
 }

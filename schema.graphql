@@ -142,6 +142,14 @@ type Device {
 	id: UUID!
 	name: String!
 	platform: DevicePlatform!
+	"""
+	Başarılı son girişte sunucunun gözlemlediği kaynak IP adresi.
+	"""
+	ipAddress: String!
+	"""
+	Desktop'ın etkin ağ bağdaştırıcısından aldığı MAC adresi.
+	"""
+	macAddress: String!
 	lastSeenAt: Time!
 	revokedAt: Time
 	"""
@@ -173,6 +181,10 @@ input DeviceInput {
 	sisteminin güvenli deposunda kalır ve sunucuya hiç gelmez.
 	"""
 	publicKey: String
+	"""
+	Desktop'ın etkin ağ bağdaştırıcısının MAC adresi.
+	"""
+	macAddress: String
 }
 enum DevicePlatform {
 	WINDOWS
@@ -211,6 +223,20 @@ enum DocumentStatus {
 	Donmuş ve yeni oturumlardan çekilmiş. Mevcut referanslar geçerli kalır.
 	"""
 	ARCHIVED
+}
+enum InviteRole {
+	EMPLOYEE
+	ORG_ADMIN
+}
+input InviteUserInput {
+	email: String!
+	firstName: String!
+	lastName: String!
+	role: InviteRole! = EMPLOYEE
+}
+type InviteUserPayload {
+	invited: Boolean!
+	email: String!
 }
 scalar JSON
 """
@@ -273,9 +299,8 @@ enum LLMTier {
 	STRONG
 }
 type Mutation {
-	register(input: RegisterInput!): RegisterPayload!
-	requestEmailVerificationCode(input: RequestEmailVerificationCodeInput!): RequestEmailVerificationCodePayload!
-	verifyEmail(input: VerifyEmailInput!): VerifyEmailPayload!
+	inviteUser(input: InviteUserInput!): InviteUserPayload! @auth @permission(requires: "users:write")
+	login(input: PasswordLoginInput!): AuthPayload!
 	requestLoginCode(input: RequestLoginCodeInput!): RequestLoginCodePayload!
 	verifyLoginCode(input: VerifyLoginCodeInput!): AuthPayload!
 	verifyMagicLink(input: VerifyMagicLinkInput!): AuthPayload!
@@ -305,6 +330,20 @@ type Mutation {
 	requestAccountDeletion: DeletionStatus! @auth
 	cancelAccountDeletion: DeletionStatus! @auth
 }
+enum OrganizationMembershipStatus {
+	INVITED
+	ACTIVE
+}
+"""
+Yöneticinin kendi kurumunda gördüğü kullanıcı. Cihazlar, yalnızca başarılı
+Desktop doğrulamasından sonra dolu olur.
+"""
+type OrganizationUser {
+	user: User!
+	membershipStatus: OrganizationMembershipStatus!
+	invitedAt: Time!
+	devices: [Device!]!
+}
 input OverrideScoreInput {
 	scoreId: UUID!
 	total: Float!
@@ -320,9 +359,19 @@ type PairedDevice {
 	"""
 	isNew: Boolean!
 }
+"""
+E-posta ve şifre ile yerel/test girişini başlatır.
+"""
+input PasswordLoginInput {
+	email: String!
+	password: String!
+	device: DeviceInput
+	deviceSignature: String
+}
 type Query {
 	me: User @auth
 	myDevices: [Device!]! @auth
+	organizationUsers: [OrganizationUser!]! @auth @permission(requires: "users:read")
 	mySessions(limit: Int = 20, offset: Int = 0): [Session!]! @auth
 	session(id: UUID!): Session @auth
 	scenarios(publishedOnly: Boolean = true): [Scenario!]! @auth
@@ -339,28 +388,6 @@ type Query {
 }
 input RefreshTokenInput {
 	refreshToken: String!
-}
-input RegisterInput {
-	email: String!
-	firstName: String!
-	lastName: String!
-}
-type RegisterPayload {
-	registered: Boolean!
-	email: String!
-	expiresInSeconds: Int!
-	resendAfterSeconds: Int!
-}
-input RequestEmailVerificationCodeInput {
-	email: String!
-}
-type RequestEmailVerificationCodePayload {
-	"""
-	İstek kabul edildi; hesap varlığı veya doğrulama durumu hakkında sinyal taşımaz.
-	"""
-	sent: Boolean!
-	expiresInSeconds: Int!
-	resendAfterSeconds: Int!
 }
 input RequestLoginCodeInput {
 	email: String!
@@ -557,6 +584,10 @@ input StartSessionInput {
 }
 input SubmitTurnInput {
 	sessionId: UUID!
+	"""
+	Network retry'larında aynı turn'ü iki kez uygulamamak için istemci anahtarı.
+	"""
+	requestId: UUID
 	text: String!
 }
 type Subscription {
@@ -642,14 +673,6 @@ enum UserStatus {
 	Kalıcı silme işi çalışmış; kişisel veri artık yok.
 	"""
 	DELETED
-}
-input VerifyEmailInput {
-	email: String!
-	code: String!
-}
-type VerifyEmailPayload {
-	verified: Boolean!
-	verifiedAt: Time!
 }
 input VerifyLoginCodeInput {
 	email: String!

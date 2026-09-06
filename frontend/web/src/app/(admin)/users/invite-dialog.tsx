@@ -83,35 +83,45 @@ export function InviteDialog({
 
     setIsSubmitting(true)
     try {
-      const data = await graphqlRequest<{
-        inviteUser: {
-          invited: boolean
-          email: string
-        }
-      }>(
-        `mutation InviteUser($input: InviteUserInput!) {
-          inviteUser(input: $input) {
-            invited
-            email
+      let invitedEmail = address
+      if (process.env.NEXT_PUBLIC_GRAPHQL_URL) {
+        const data = await graphqlRequest<{
+          inviteUser: {
+            invited: boolean
+            email: string
           }
-        }`,
-        {
-          input: {
-            email: address,
-            firstName,
-            lastName,
-            role: role === "org-admin" ? "ORG_ADMIN" : "EMPLOYEE",
+        }>(
+          `mutation InviteUser($input: InviteUserInput!) {
+            inviteUser(input: $input) {
+              invited
+              email
+            }
+          }`,
+          {
+            input: {
+              email: address,
+              firstName,
+              lastName,
+              role: role === "org-admin" ? "ORG_ADMIN" : "EMPLOYEE",
+            },
           },
-        },
-      )
+        )
+        invitedEmail = data.inviteUser.email
+      }
 
       addUsers(
-        [{ email: data.inviteUser.email, name: name.trim(), role }],
+        [{ email: invitedEmail, name: name.trim(), role }],
         target,
         "invite",
       )
-      toast.success("Kullanıcı eklendi", {
-        description: `${data.inviteUser.email} Desktop'tan ilk giriş yaptığında doğrulama kodu gönderilecek.`,
+      toast.success(
+        process.env.NEXT_PUBLIC_GRAPHQL_URL
+          ? "Kullanıcı eklendi"
+          : "Kullanıcı demo alanına eklendi",
+        {
+          description: process.env.NEXT_PUBLIC_GRAPHQL_URL
+            ? `${invitedEmail} Desktop'tan ilk giriş yaptığında doğrulama kodu gönderilecek.`
+            : `${invitedEmail} bu tarayıcıdaki demo yönetim listesine eklendi. Gerçek mail doğrulaması için GraphQL backend bağlantısı gerekir.`,
       })
       setName("")
       setEmail("")

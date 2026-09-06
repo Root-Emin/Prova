@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { LogOut } from "lucide-react"
 
 import {
   Sidebar,
@@ -25,6 +26,15 @@ import { initialsOf } from "@/app/(admin)/users/mock"
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" })
+    window.localStorage.removeItem("prova:admin-session")
+    window.localStorage.removeItem("prova:access-token")
+    window.localStorage.removeItem("prova:refresh-token")
+    router.replace("/login")
+  }
 
   return (
     <Sidebar collapsible="offcanvas" className="border-r border-sidebar-border">
@@ -78,6 +88,14 @@ export function AppSidebar() {
             </div>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="inline-flex h-(--buton-yuksekligi) items-center justify-center gap-1.5 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <LogOut size={16} aria-hidden />
+          Çıkış yap
+        </button>
       </SidebarFooter>
     </Sidebar>
   )

@@ -95,12 +95,16 @@ func (h *harness) requestCode(email string) error {
 	return nil
 }
 
-// registerAndVerify creates an account through the public registration flow
-// and redeems its dedicated e-mail-verification OTP. Existing seeded users are
-// already verified and are left unchanged.
+// inviteUser provisions an account through the current administrator flow.
+// Existing seeded users are already provisioned and are left unchanged. The
+// first Desktop login then verifies the mailbox and activates the membership.
 func (h *harness) registerAndVerify(email string) error {
-	resp, err := h.query("", fmt.Sprintf(
-		`mutation { register(input:{email:%q, firstName:"Doğrulama", lastName:"Kullanıcısı"}) { registered } }`, email))
+	if email == adminEmail || email == traineeEmail {
+		return nil
+	}
+
+	resp, err := h.query(h.adminToken, fmt.Sprintf(
+		`mutation { inviteUser(input:{email:%q, firstName:"Doğrulama", lastName:"Kullanıcısı", role:EMPLOYEE}) { invited email } }`, email))
 	if err != nil {
 		return err
 	}
@@ -108,23 +112,7 @@ func (h *harness) registerAndVerify(email string) error {
 		if strings.Contains(strings.ToLower(resp.firstError()), "already exists") {
 			return nil
 		}
-		return fmt.Errorf("kayıt başarısız: %s", resp.firstError())
-	}
-	body, err := h.mailBody(email)
-	if err != nil {
-		return fmt.Errorf("doğrulama iletisi: %w", err)
-	}
-	code, ok := loginCode(body)
-	if !ok {
-		return fmt.Errorf("doğrulama iletisinde altı haneli kod yok")
-	}
-	verified, err := h.query("", fmt.Sprintf(
-		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified } }`, email, code))
-	if err != nil {
-		return err
-	}
-	if len(verified.Errors) > 0 {
-		return fmt.Errorf("e-posta doğrulanamadı: %s", verified.firstError())
+		return fmt.Errorf("davet başarısız: %s", resp.firstError())
 	}
 	return nil
 }
@@ -196,6 +184,13 @@ func (h *harness) loginWithCode(email string, device *deviceInput, signature str
 func (h *harness) loginFull(email string, device *deviceInput, signature string) (authResult, error) {
 	if err := h.registerAndVerify(email); err != nil {
 		return authResult{}, err
+	}
+	if device == nil && email != adminEmail && email != traineeEmail {
+		device = &deviceInput{
+			Fingerprint: "fp-" + h.runID + "-" + randomHex(4),
+			Name:        "Doğrulama cihazı",
+			Platform:    "linux",
+		}
 	}
 	if err := h.requestCode(email); err != nil {
 		return authResult{}, err

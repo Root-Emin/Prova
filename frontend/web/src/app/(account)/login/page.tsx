@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
+import { ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,17 +31,40 @@ export default function LoginPage() {
     setError(null)
     setIsSubmitting(true)
     try {
-      const data = await graphqlRequest<{
-        login: { accessToken: string; refreshToken: string }
-      }>(
-        `mutation Login($input: PasswordLoginInput!) {
-        login(input: $input) { accessToken refreshToken }
-      }`,
-        { input: { email: trimmed, password } },
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed, password }),
+      })
+      const payload = (await response.json()) as {
+        email?: string
+        name?: string
+        message?: string
+      }
+      if (!response.ok) throw new Error(payload.message ?? "Giriş yapılamadı")
+
+      window.localStorage.setItem(
+        "prova:admin-session",
+        JSON.stringify({ email: payload.email, name: payload.name, role: "admin" }),
       )
-      window.localStorage.setItem("prova:access-token", data.login.accessToken)
-      window.localStorage.setItem("prova:refresh-token", data.login.refreshToken)
-      router.push("/")
+
+      // Backend adresi tanımlandığında web login'i gerçek GraphQL oturumuyla
+      // tamamlanır. Vercel demo ortamında yönetim ekranı yerel taslakla çalışır.
+      if (process.env.NEXT_PUBLIC_GRAPHQL_URL) {
+        const data = await graphqlRequest<{
+          login: { accessToken: string; refreshToken: string }
+        }>(
+          `mutation Login($input: PasswordLoginInput!) {
+            login(input: $input) { accessToken refreshToken }
+          }`,
+          { input: { email: trimmed, password } },
+        )
+        window.localStorage.setItem("prova:access-token", data.login.accessToken)
+        window.localStorage.setItem("prova:refresh-token", data.login.refreshToken)
+      }
+
+      const next = new URLSearchParams(window.location.search).get("next")
+      router.replace(next || "/")
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -54,14 +78,25 @@ export default function LoginPage() {
 
   return (
     <FormShell
-      title="Giriş yap"
-      description="Test hesabınızın kullanıcı adı ve şifresiyle giriş yapın."
-      footer="Demo: yonetici@prova.local / SecurePass123!"
+      title="Yönetici girişi"
+      description="Prova yönetim paneline erişmek için kurum yöneticisi hesabınızla giriş yapın."
+      aside={
+        <div className="flex items-start gap-3 rounded-lg border border-line-strong bg-tint px-4 py-3">
+          <ShieldCheck size={20} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+          <div>
+            <p className="text-sm font-medium text-foreground">Yalnızca yetkili yöneticiler</p>
+            <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
+              Kullanıcı ekleme, cihaz ve eğitim ayarları bu alandan yönetilir.
+            </p>
+          </div>
+        </div>
+      }
+      footer="Çalışan hesabı, doğrulama koduyla Prova Desktop uygulamasında kullanılır."
     >
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="space-y-2">
           <Label htmlFor="login-email">
-            Kullanıcı adı / e-posta <span className="text-destructive">*</span>
+            Yönetici e-postası <span className="text-destructive">*</span>
           </Label>
           <Input
             id="login-email"

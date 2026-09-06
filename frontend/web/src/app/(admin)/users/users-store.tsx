@@ -3,6 +3,11 @@
 import * as React from "react"
 
 import { graphqlRequest } from "@/lib/graphql"
+import {
+  readDemoUsers,
+  writeDemoUsers,
+  type DemoUser,
+} from "@/lib/demo-users"
 
 import {
   departments as departmentSeed,
@@ -129,6 +134,39 @@ function mapOrganizationUser(
 export function UsersProvider({ children }: { children: React.ReactNode }) {
   const [departments, setDepartments] = React.useState<Department[]>(departmentSeed)
   const [users, setUsers] = React.useState<User[]>(userSeed)
+
+  const demoMode = !process.env.NEXT_PUBLIC_GRAPHQL_URL
+  const demoUsersHydrated = React.useRef(!demoMode)
+  const skipDemoPersist = React.useRef(demoMode)
+
+  React.useEffect(() => {
+    if (!demoMode) return
+
+    const timer = window.setTimeout(() => {
+      const stored = readDemoUsers()
+      if (stored.length > 0) {
+        setUsers((previous) => {
+          const storedEmails = new Set(stored.map((user) => user.email.toLowerCase()))
+          return [
+            ...stored,
+            ...previous.filter((user) => !storedEmails.has(user.email.toLowerCase())),
+          ]
+        })
+      }
+      demoUsersHydrated.current = true
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [demoMode])
+
+  React.useEffect(() => {
+    if (!demoMode || !demoUsersHydrated.current) return
+    if (skipDemoPersist.current) {
+      skipDemoPersist.current = false
+      return
+    }
+    writeDemoUsers(users as DemoUser[])
+  }, [demoMode, users])
 
   React.useEffect(() => {
     let disposed = false

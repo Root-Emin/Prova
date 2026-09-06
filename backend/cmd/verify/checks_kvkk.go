@@ -5,16 +5,21 @@ import (
 	"strings"
 )
 
-// 9. E-posta: kayıt doğrulaması girişten ayrı, tek kullanımlık bir akıştır.
+// 9. E-posta: yönetici daveti sonrası Desktop login kodu, mailbox kanıtını ve
+// ilk hesap aktivasyonunu aynı tek kullanımlık akışta tamamlar.
 func verifyEmail(h *harness) []check {
 	var checks []check
 
-	// Dedicated registration + e-mail-verification OTP.
+	// A new address can only enter through the administrator invite flow.
 	codeEmail := h.newEmail("kod")
-	registerResp, err := h.query("", fmt.Sprintf(
-		`mutation { register(input:{email:%q, firstName:"Kod", lastName:"Testi"}) { registered expiresInSeconds resendAfterSeconds } }`, codeEmail))
-	if err != nil || len(registerResp.Errors) > 0 {
-		return append(checks, fail("kayıt mutation'ı", prettyJSON(registerResp.Errors)))
+	inviteResp, err := h.query(h.adminToken, fmt.Sprintf(
+		`mutation { inviteUser(input:{email:%q, firstName:"Kod", lastName:"Testi", role:EMPLOYEE}) { invited email } }`, codeEmail))
+	if err != nil || len(inviteResp.Errors) > 0 {
+		return append(checks, fail("yönetici daveti", prettyJSON(inviteResp.Errors)))
+	}
+
+	if err := h.requestCode(codeEmail); err != nil {
+		return append(checks, fail("davetli kullanıcı için kod isteniyor", err.Error()))
 	}
 	body, err := h.mailBody(codeEmail)
 	if err != nil {
@@ -23,55 +28,34 @@ func verifyEmail(h *harness) []check {
 
 	code, hasCode := loginCode(body)
 	if !hasCode {
-		return append(checks, fail("doğrulama mailinde altı haneli kod var", "kod bulunamadı"))
-	}
-	if _, hasLink := magicLink(body); hasLink {
-		checks = append(checks, fail("doğrulama girişi tetiklemiyor", "doğrulama iletisinde login magic link'i var"))
-	} else {
-		checks = append(checks, pass("kayıt ayrı doğrulama iletisi gönderiyor", "6 haneli kod, login bağlantısı yok"))
-	}
-	verifyResp, err := h.query("", fmt.Sprintf(
-		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified verifiedAt } }`, codeEmail, code))
-	if err != nil || len(verifyResp.Errors) > 0 {
-		return append(checks, fail("verifyEmail e-postayı doğruluyor", prettyJSON(verifyResp.Errors)))
-	}
-	verifiedAt, dbErr := psql(fmt.Sprintf(
-		`SELECT email_verified_at IS NOT NULL FROM users WHERE lower(email)=lower('%s')`, codeEmail))
-	if dbErr != nil || verifiedAt != "t" {
-		checks = append(checks, fail("email_verified_at yazılıyor", fmt.Sprintf("değer=%q hata=%v", verifiedAt, dbErr)))
-	} else {
-		checks = append(checks, pass("verifyEmail yalnız e-postayı doğruluyor", "email_verified_at dolu"))
-	}
-	replay, err := h.query("", fmt.Sprintf(
-		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified } }`, codeEmail, code))
-	if err != nil || len(replay.Errors) == 0 {
-		checks = append(checks, fail("doğrulama kodu tek kullanımlık", "aynı kod ikinci kez kabul edildi"))
-	} else {
-		checks = append(checks, pass("doğrulama kodu tek kullanımlık", replay.firstError()))
+		return append(checks, fail("login mailinde altı haneli kod var", "kod bulunamadı"))
 	}
 
-	// Passwordless login remains a separate code + magic-link flow.
-	if err := h.requestCode(codeEmail); err != nil {
-		return append(checks, fail("doğrulama sonrası giriş kodu", err.Error()))
+	first, _, verifyErr := h.verifyCode(codeEmail, code, &deviceInput{
+		Fingerprint: "fp-" + h.runID + "-email",
+		Name:        "E-posta doğrulama cihazı",
+		Platform:    "linux",
+	}, "")
+	if verifyErr != nil {
+		return append(checks, fail("ilk Desktop doğrulaması", verifyErr.Error()))
 	}
-	loginBody, err := h.mailBody(codeEmail)
-	if err != nil {
-		return append(checks, fail("giriş iletisi", err.Error()))
-	}
-	loginOTP, hasLoginOTP := loginCode(loginBody)
-	if !hasLoginOTP {
-		return append(checks, fail("giriş kodu", "kod bulunamadı"))
-	}
-	if _, _, err := h.verifyCode(codeEmail, loginOTP, nil, ""); err != nil {
-		checks = append(checks, fail("ayrı login kodu çalışıyor", err.Error()))
+	if !first.User.EmailVerified {
+		checks = append(checks, fail("ilk login mailbox'ı doğruluyor", "emailVerified false"))
 	} else {
-		checks = append(checks, pass("login ve doğrulama ayrı", "verifyLoginCode oturum üretti"))
+		checks = append(checks, pass("yönetici daveti ve mailbox doğrulaması", "ilk login hesabı etkinleştirdi"))
 	}
 
-	// Login magic-link path still works for a separately verified account.
+	_, replay, err := h.verifyCode(codeEmail, code, nil, "")
+	if err == nil || len(replay.Errors) == 0 {
+		checks = append(checks, fail("login kodu tek kullanımlık", "aynı kod ikinci kez kabul edildi"))
+	} else {
+		checks = append(checks, pass("login kodu tek kullanımlık", replay.Errors[0].Message))
+	}
+
+	// A verified account receives the optional magic link on its next login.
 	linkEmail := h.newEmail("link")
-	if err := h.registerAndVerify(linkEmail); err != nil {
-		return append(checks, fail("link hesabı doğrulanıyor", err.Error()))
+	if _, err := h.loginFull(linkEmail, nil, ""); err != nil {
+		return append(checks, fail("link hesabı ilk Desktop girişi", err.Error()))
 	}
 	if err := h.requestCode(linkEmail); err != nil {
 		return append(checks, fail("link için kod isteniyor", err.Error()))
