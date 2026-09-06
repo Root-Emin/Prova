@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Prova employee desktop application",
+  "homepage": "https://github.com/Root-Emin/Prova",
+  "author": {
+    "name": "Root-Emin",
+    "email": "root-emin@users.noreply.github.com"
+  },
   "main": "dist-electron/main.js",
   "scripts": {
     "dev:renderer": "next dev --hostname 127.0.0.1 --port 3100",
