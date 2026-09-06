@@ -384,6 +384,7 @@ gerektirir.
 
 ## Belgeler
 
+- [API_DOCUMENTATION.md](API_DOCUMENTATION.md) — backend API, GraphQL, auth, oturum, WebSocket ve işletim rehberi
 - [docs/TRACEABILITY.md](docs/TRACEABILITY.md) — 12 gereksinim → dosyalar → doğrulama komutu
 - [docs/SECURITY.md](docs/SECURITY.md) — saldırı → savunma
 - [docs/KVKK.md](docs/KVKK.md) — hangi veri nerede, ne kadar saklanıyor, nasıl siliniyor
