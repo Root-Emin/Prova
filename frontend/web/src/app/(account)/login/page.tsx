@@ -108,7 +108,6 @@ export default function LoginPage() {
               setEmail(event.target.value)
               if (error) setError(null)
             }}
-            placeholder="yonetici@prova.local"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "login-email-error" : undefined}
           />
@@ -133,7 +132,6 @@ export default function LoginPage() {
               setPassword(event.target.value)
               if (error) setError(null)
             }}
-            placeholder="SecurePass123!"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "login-password-error" : undefined}
           />
