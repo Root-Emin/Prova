@@ -263,3 +263,33 @@ func TestRequestLoginCode_RejectsEmptyAddress(t *testing.T) {
 
 	assert.ErrorIs(t, err, domainErr.ErrValidation)
 }
+
+// Invited (inactive/unverified) accounts must receive a login code so first
+// launch can complete. Unknown addresses remain silent.
+func TestRequestLoginCode_SendsToUnverifiedInvitedUser(t *testing.T) {
+	cfg := testAuthConfig()
+	user := &model.User{Email: "invited@corp.com", Status: model.UserStatusInactive}
+	f := newRequestFixture(t, cfg, newFakeUserRepo(user))
+	user.EmailVerifiedAt = nil
+
+	resp, err := f.uc.Execute(context.Background(),
+		dto.RequestLoginCodeRequest{Email: "invited@corp.com"}, "203.0.113.1")
+
+	require.NoError(t, err)
+	assert.True(t, resp.Sent)
+	require.Len(t, f.sender.messages(), 1)
+	assert.Equal(t, "invited@corp.com", f.sender.messages()[0].To.Email)
+}
+
+func TestRequestLoginCode_SuspendedUserIsSilent(t *testing.T) {
+	cfg := testAuthConfig()
+	user := &model.User{Email: "locked@corp.com", Status: model.UserStatusSuspended}
+	f := newRequestFixture(t, cfg, newFakeUserRepo(user))
+
+	resp, err := f.uc.Execute(context.Background(),
+		dto.RequestLoginCodeRequest{Email: "locked@corp.com"}, "203.0.113.1")
+
+	require.NoError(t, err)
+	assert.True(t, resp.Sent)
+	assert.Empty(t, f.sender.messages())
+}

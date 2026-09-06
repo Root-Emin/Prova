@@ -1,8 +1,10 @@
 import {
   BadgeCheck,
   CheckCheck,
+  ClipboardList,
   Laptop,
   ListChecks,
+  Mail,
   MessagesSquare,
   Mic,
   Play,
@@ -59,8 +61,8 @@ export const onboardingSteps: OnboardingStep[] = [
         text: "Konuşmak için space tuşunu basılı tutar, bıraktığınızda sözü karaktere verirsiniz.",
       },
       {
-        icon: Laptop,
-        text: "Sınav yalnızca kayıtlı cihazdan verilir; girişten sonra bu cihazı kaydedersiniz.",
+        icon: ClipboardList,
+        text: "Başlamadan önce senaryoyu, karakteri ve ölçülecek kriterleri gösteren bir bilgilendirme ekranı gelir.",
       },
     ],
   },
@@ -77,6 +79,25 @@ export const onboardingSteps: OnboardingStep[] = [
       {
         icon: TriangleAlert,
         text: "Zorunlu bir kriter düşerse oturum, toplam puandan bağımsız kaldı sayılır.",
+      },
+    ],
+  },
+  {
+    id: "kurulum",
+    title: "Sırada ne var?",
+    description: "Girişten sonra üç kısa adım kalıyor.",
+    points: [
+      {
+        icon: Mail,
+        text: "Parola yok: e-postanıza gelen 6 haneli kodu girersiniz, kod 10 dakika geçerlidir.",
+      },
+      {
+        icon: Laptop,
+        text: "Ardından bu cihaz hesabınıza kaydedilir; sınav yalnızca kayıtlı cihazdan verilebilir.",
+      },
+      {
+        icon: Play,
+        text: "Oturumlarım listesinde size atanan senaryolar görünür; Başla dediğinizde oturum açılır.",
       },
     ],
   },

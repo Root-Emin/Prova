@@ -15,7 +15,7 @@ import (
 
 // userColumns, her okuma sorgusunun kolon listesi. Tek yerde tutuluyor:
 // kolon eklemek dört ayrı SELECT'i aynı anda değiştirmek zorunda kalmasın.
-const userColumns = `id, email, first_name, last_name, status, email_verified_at, deletion_requested_at, deletion_scheduled_at, deleted_at, locked_until, failed_attempts, created_at, updated_at`
+const userColumns = `id, email, password_hash, first_name, last_name, status, email_verified_at, deletion_requested_at, deletion_scheduled_at, deleted_at, locked_until, failed_attempts, created_at, updated_at`
 
 // scanner, pgx.Row ve pgx.Rows'un ortak yüzü.
 type scanner interface{ Scan(dest ...any) error }
@@ -28,15 +28,16 @@ type scanner interface{ Scan(dest ...any) error }
 // her sorguyu hataya çevirirdi.
 func scanUser(row scanner) (*model.User, error) {
 	var (
-		u                          model.User
-		email, firstName, lastName *string
+		u                                        model.User
+		email, passwordHash, firstName, lastName *string
 	)
-	if err := row.Scan(&u.ID, &email, &firstName, &lastName, &u.Status, &u.EmailVerifiedAt,
+	if err := row.Scan(&u.ID, &email, &passwordHash, &firstName, &lastName, &u.Status, &u.EmailVerifiedAt,
 		&u.DeletionRequestedAt, &u.DeletionScheduledAt, &u.DeletedAt,
 		&u.LockedUntil, &u.FailedAttempts, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	u.Email = deref(email)
+	u.PasswordHash = deref(passwordHash)
 	u.FirstName = deref(firstName)
 	u.LastName = deref(lastName)
 	return &u, nil
@@ -77,9 +78,9 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	user.UpdatedAt = now
 
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO users (id, email, first_name, last_name, status, email_verified_at, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		user.ID, nullIfEmpty(user.Email), nullIfEmpty(user.FirstName), nullIfEmpty(user.LastName),
+		`INSERT INTO users (id, email, password_hash, first_name, last_name, status, email_verified_at, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		user.ID, nullIfEmpty(user.Email), nullIfEmpty(user.PasswordHash), nullIfEmpty(user.FirstName), nullIfEmpty(user.LastName),
 		user.Status, user.EmailVerifiedAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
@@ -118,11 +119,11 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 	user.UpdatedAt = time.Now().UTC()
 	_, err := r.db.Exec(ctx,
-		`UPDATE users SET email=$1, first_name=$2, last_name=$3, status=$4, email_verified_at=$5,
-		        deletion_requested_at=$6, deletion_scheduled_at=$7, deleted_at=$8,
-		        locked_until=$9, failed_attempts=$10, updated_at=$11
-		  WHERE id=$12`,
-		nullIfEmpty(user.Email), nullIfEmpty(user.FirstName), nullIfEmpty(user.LastName),
+		`UPDATE users SET email=$1, password_hash=$2, first_name=$3, last_name=$4, status=$5, email_verified_at=$6,
+		        deletion_requested_at=$7, deletion_scheduled_at=$8, deleted_at=$9,
+		        locked_until=$10, failed_attempts=$11, updated_at=$12
+		  WHERE id=$13`,
+		nullIfEmpty(user.Email), nullIfEmpty(user.PasswordHash), nullIfEmpty(user.FirstName), nullIfEmpty(user.LastName),
 		user.Status, user.EmailVerifiedAt,
 		user.DeletionRequestedAt, user.DeletionScheduledAt, user.DeletedAt,
 		user.LockedUntil, user.FailedAttempts, user.UpdatedAt, user.ID,

@@ -11,7 +11,7 @@ import { PrivacyNotice } from "@/components/prova/privacy-notice"
 import { onboardingSteps } from "./steps"
 
 /**
- * The three intro screens shown once, before the first login. Deliberately
+ * The intro screens shown once, before the first login. Deliberately
  * the same shell as the login card that follows on the fourth screen: same
  * width, same logo position, so only the card content changes underneath.
  */
@@ -101,7 +101,7 @@ export default function OnboardingPage() {
 }
 
 /**
- * Three segments, slate for seen and steel for upcoming. No orange: in this
+ * One segment per step, slate for seen and steel for upcoming. No orange: in this
  * palette orange has only three standing jobs and a step counter is not one.
  */
 function StepIndicator({ current, total }: { current: number; total: number }) {

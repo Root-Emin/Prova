@@ -16,48 +16,44 @@ import (
 	iamDTO "github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
 	iamUC "github.com/masterfabric-go/masterfabric/internal/application/iam/usecase"
 	provaUC "github.com/masterfabric-go/masterfabric/internal/application/prova/usecase"
+	iamModel "github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 	provaModel "github.com/masterfabric-go/masterfabric/internal/domain/prova/model"
 	provaRepo "github.com/masterfabric-go/masterfabric/internal/domain/prova/repository"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
 
-// Register is the resolver for the register field.
-func (r *mutationResolver) Register(ctx context.Context, input model.RegisterInput) (*model.RegisterPayload, error) {
-	result, err := r.RegisterUC.Execute(ctx, iamDTO.RegisterRequest{
-		Email: input.Email, FirstName: input.FirstName, LastName: input.LastName,
-	}, clientIP(ctx))
+// InviteUser is the resolver for the inviteUser field.
+func (r *mutationResolver) InviteUser(ctx context.Context, input model.InviteUserInput) (*model.InviteUserPayload, error) {
+	v, err := viewer(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &model.RegisterPayload{
-		Registered: result.Registered, Email: result.Email,
-		ExpiresInSeconds:   result.ExpiresInSeconds,
-		ResendAfterSeconds: result.ResendAfterSeconds,
-	}, nil
-}
-
-// RequestEmailVerificationCode is the resolver for the requestEmailVerificationCode field.
-func (r *mutationResolver) RequestEmailVerificationCode(ctx context.Context, input model.RequestEmailVerificationCodeInput) (*model.RequestEmailVerificationCodePayload, error) {
-	result, err := r.RequestEmailVerificationUC.Execute(ctx,
-		iamDTO.RequestEmailVerificationCodeRequest{Email: input.Email}, clientIP(ctx))
-	if err != nil {
-		return nil, err
-	}
-	return &model.RequestEmailVerificationCodePayload{
-		Sent: result.Sent, ExpiresInSeconds: result.ExpiresInSeconds,
-		ResendAfterSeconds: result.ResendAfterSeconds,
-	}, nil
-}
-
-// VerifyEmail is the resolver for the verifyEmail field.
-func (r *mutationResolver) VerifyEmail(ctx context.Context, input model.VerifyEmailInput) (*model.VerifyEmailPayload, error) {
-	result, err := r.VerifyEmailUC.Execute(ctx, iamDTO.VerifyEmailRequest{
-		Email: input.Email, Code: input.Code,
+	result, err := r.InviteUserUC.Execute(ctx, iamDTO.InviteUserRequest{
+		Email:          input.Email,
+		FirstName:      input.FirstName,
+		LastName:       input.LastName,
+		Role:           string(input.Role),
+		OrganizationID: v.OrgID,
+		InvitedBy:      v.UserID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &model.VerifyEmailPayload{Verified: result.Verified, VerifiedAt: result.VerifiedAt}, nil
+	return &model.InviteUserPayload{Invited: result.Invited, Email: result.Email}, nil
+}
+
+// Login is the resolver for the optional local/test password login.
+func (r *mutationResolver) Login(ctx context.Context, input model.PasswordLoginInput) (*model.AuthPayload, error) {
+	result, err := r.PasswordLoginUC.Execute(ctx, iamDTO.PasswordLoginRequest{
+		Email:           input.Email,
+		Password:        input.Password,
+		Device:          mapDeviceInput(input.Device),
+		DeviceSignature: derefString(input.DeviceSignature),
+	}, clientIP(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return r.authPayload(ctx, result)
 }
 
 // RequestLoginCode is the resolver for the requestLoginCode field.
@@ -499,6 +495,35 @@ func (r *queryResolver) MyDevices(ctx context.Context) ([]*model.Device, error) 
 		return nil, err
 	}
 	return mapDevices(devices), nil
+}
+
+// OrganizationUsers is the resolver for the organizationUsers field.
+func (r *queryResolver) OrganizationUsers(ctx context.Context) ([]*model.OrganizationUser, error) {
+	v, err := viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records, err := r.ListOrganizationUsersUC.Execute(ctx, v.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*model.OrganizationUser, 0, len(records))
+	for _, record := range records {
+		if record == nil || record.User == nil || record.Membership == nil {
+			continue
+		}
+		status := model.OrganizationMembershipStatusInvited
+		if record.Membership.Status == iamModel.OrgUserStatusActive {
+			status = model.OrganizationMembershipStatusActive
+		}
+		result = append(result, &model.OrganizationUser{
+			User:             mapUser(record.User, v.OrgID, r.permissionsOf(ctx, record.User.ID, v.OrgID)),
+			MembershipStatus: status,
+			InvitedAt:        record.Membership.CreatedAt,
+			Devices:          mapDevices(record.Devices),
+		})
+	}
+	return result, nil
 }
 
 // MySessions is the resolver for the mySessions field.

@@ -12,9 +12,16 @@ export async function graphqlRequest<T>(
   query: string,
   variables: Record<string, unknown>,
 ): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  // Yönetim çağrıları, aynı tarayıcıdaki parolasız girişin access token'ını
+  // taşır. SSR'da window olmadığı için anonim akışlar etkilenmez.
+  if (typeof window !== "undefined") {
+    const accessToken = window.localStorage.getItem("prova:access-token")
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  }
   const response = await fetch(graphqlURL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ query, variables }),
   })
   const payload = (await response.json()) as GraphQLResponse<T>

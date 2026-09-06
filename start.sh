@@ -233,11 +233,15 @@ install_frontend_deps() {
 }
 
 wait_for_http() {
-    local url="$1" label="$2" retries="${3:-60}"
+    local url="$1" label="$2" retries="${3:-60}" pid="${4:-}"
     for i in $(seq 1 "$retries"); do
         if curl -fsS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
             log_ok "$label is up ($url)"
             return 0
+        fi
+        if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+            log_error "$label exited before becoming ready"
+            return 1
         fi
         sleep 1
     done
@@ -394,8 +398,10 @@ start_desktop() {
     echo $! > "$DESKTOP_PID_FILE"
     set +m
 
-    log_ok "Desktop started (pid $(cat "$DESKTOP_PID_FILE")) → log: .run/desktop.log"
-    wait_for_http "http://127.0.0.1:$DESKTOP_PORT" "Desktop" 90 || true
+    local desktop_pid
+    desktop_pid=$(cat "$DESKTOP_PID_FILE")
+    log_ok "Desktop started (pid $desktop_pid) → log: .run/desktop.log"
+    wait_for_http "http://127.0.0.1:$DESKTOP_PORT" "Desktop" 90 "$desktop_pid"
 }
 
 stop_apps() {

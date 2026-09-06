@@ -75,6 +75,10 @@ type Device {
   id: UUID!
   name: String!
   platform: DevicePlatform!
+  "Başarılı son girişte sunucunun gözlemlediği kaynak IP adresi."
+  ipAddress: String!
+  "Desktop'ın etkin ağ bağdaştırıcısından aldığı MAC adresi."
+  macAddress: String!
   lastSeenAt: Time!
   revokedAt: Time
   "Anahtar çifti kayıtlı mı. Değilse cihaz yalnızca eski parmak izi eşleşmesiyle tanınır."
@@ -113,23 +117,38 @@ type RequestLoginCodePayload {
   resendAfterSeconds: Int!
 }
 
-type RegisterPayload {
-  registered: Boolean!
+"""E-posta ve şifre ile yerel/test girişini başlatır."""
+input PasswordLoginInput {
   email: String!
-  expiresInSeconds: Int!
-  resendAfterSeconds: Int!
+  password: String!
+  device: DeviceInput
+  deviceSignature: String
 }
 
-type RequestEmailVerificationCodePayload {
-  "İstek kabul edildi; hesap varlığı veya doğrulama durumu hakkında sinyal taşımaz."
-  sent: Boolean!
-  expiresInSeconds: Int!
-  resendAfterSeconds: Int!
+enum InviteRole {
+  EMPLOYEE
+  ORG_ADMIN
 }
 
-type VerifyEmailPayload {
-  verified: Boolean!
-  verifiedAt: Time!
+enum OrganizationMembershipStatus {
+  INVITED
+  ACTIVE
+}
+
+"""
+Yöneticinin kendi kurumunda gördüğü kullanıcı. Cihazlar, yalnızca başarılı
+Desktop doğrulamasından sonra dolu olur.
+"""
+type OrganizationUser {
+  user: User!
+  membershipStatus: OrganizationMembershipStatus!
+  invitedAt: Time!
+  devices: [Device!]!
+}
+
+type InviteUserPayload {
+  invited: Boolean!
+  email: String!
 }
 
 """Cihazın imzalaması gereken tek kullanımlık meydan okuma."""
@@ -498,19 +517,11 @@ input RequestLoginCodeInput {
   email: String!
 }
 
-input RegisterInput {
+input InviteUserInput {
   email: String!
   firstName: String!
   lastName: String!
-}
-
-input RequestEmailVerificationCodeInput {
-  email: String!
-}
-
-input VerifyEmailInput {
-  email: String!
-  code: String!
+  role: InviteRole! = EMPLOYEE
 }
 
 input DeviceInput {
@@ -525,6 +536,8 @@ input DeviceInput {
   sisteminin güvenli deposunda kalır ve sunucuya hiç gelmez.
   """
   publicKey: String
+  "Desktop'ın etkin ağ bağdaştırıcısının MAC adresi."
+  macAddress: String
 }
 
 input VerifyLoginCodeInput {
@@ -635,6 +648,7 @@ input UpdateProfileInput {
 type Query {
   me: User @auth
   myDevices: [Device!]! @auth
+  organizationUsers: [OrganizationUser!]! @auth @permission(requires: "users:read")
   mySessions(limit: Int = 20, offset: Int = 0): [Session!]! @auth
   session(id: UUID!): Session @auth
 
@@ -655,9 +669,8 @@ type Query {
 
 type Mutation {
   # --- kimlik ---
-  register(input: RegisterInput!): RegisterPayload!
-  requestEmailVerificationCode(input: RequestEmailVerificationCodeInput!): RequestEmailVerificationCodePayload!
-  verifyEmail(input: VerifyEmailInput!): VerifyEmailPayload!
+  inviteUser(input: InviteUserInput!): InviteUserPayload! @auth @permission(requires: "users:write")
+  login(input: PasswordLoginInput!): AuthPayload!
   requestLoginCode(input: RequestLoginCodeInput!): RequestLoginCodePayload!
   verifyLoginCode(input: VerifyLoginCodeInput!): AuthPayload!
   verifyMagicLink(input: VerifyMagicLinkInput!): AuthPayload!

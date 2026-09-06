@@ -15,14 +15,16 @@ import (
 )
 
 type RegisterUseCase struct {
-	users        repository.UserRepository
-	verification *RequestEmailVerificationCodeUseCase
-	events       events.EventBus
-	now          func() time.Time
+	users  repository.UserRepository
+	events events.EventBus
+	now    func() time.Time
 }
 
-func NewRegisterUseCase(users repository.UserRepository, verification *RequestEmailVerificationCodeUseCase, eventBus events.EventBus) *RegisterUseCase {
-	return &RegisterUseCase{users: users, verification: verification, events: eventBus, now: time.Now}
+// NewRegisterUseCase provisions an account selected by an administrator.
+// Delivery deliberately does not happen here: the first Desktop sign-in is
+// the single point that requests, sends, and verifies the login code.
+func NewRegisterUseCase(users repository.UserRepository, eventBus events.EventBus) *RegisterUseCase {
+	return &RegisterUseCase{users: users, events: eventBus, now: time.Now}
 }
 
 func (uc *RegisterUseCase) Execute(ctx context.Context, req dto.RegisterRequest, requestIP string) (*dto.RegisterResponse, error) {
@@ -35,9 +37,15 @@ func (uc *RegisterUseCase) Execute(ctx context.Context, req dto.RegisterRequest,
 	if firstName == "" || len(firstName) > 255 || len(lastName) > 255 {
 		return nil, domainErr.New(domainErr.ErrValidation, "first name is required", nil)
 	}
-	if _, err := uc.users.GetByEmail(ctx, email); err == nil {
-		return nil, domainErr.New(domainErr.ErrAlreadyExists, "an account already exists for this email", nil)
-	} else if !errors.Is(err, domainErr.ErrNotFound) {
+	existing, err := uc.users.GetByEmail(ctx, email)
+	switch {
+	case err == nil:
+		// Provisioning a pending invite is idempotent. An accidental second
+		// submission must not create a second account or send an unexpected mail.
+		return uc.provisionExisting(ctx, existing, firstName, lastName)
+	case errors.Is(err, domainErr.ErrNotFound):
+		// Fresh invite path below.
+	default:
 		return nil, err
 	}
 
@@ -53,18 +61,30 @@ func (uc *RegisterUseCase) Execute(ctx context.Context, req dto.RegisterRequest,
 			UserID: user.ID, Email: user.Email, Timestamp: uc.now().UTC(),
 		})
 	}
-	if uc.verification == nil {
-		return nil, domainErr.New(domainErr.ErrInternal, "email verification is unavailable", nil)
+	return &dto.RegisterResponse{Registered: true, Email: user.Email}, nil
+}
+
+// provisionExisting leaves an already-pending account ready for its first
+// Desktop login. Verified and deleted accounts keep rejecting so the admin UI
+// can surface a real conflict rather than silently changing membership.
+func (uc *RegisterUseCase) provisionExisting(ctx context.Context, user *model.User, firstName, lastName string) (*dto.RegisterResponse, error) {
+	if user.IsDeleted() || user.IsEmailVerified() {
+		return nil, domainErr.New(domainErr.ErrAlreadyExists, "an account already exists for this email", nil)
 	}
-	verification, err := uc.verification.ExecuteForUser(ctx, user, requestIP)
-	if err != nil {
-		// The persisted account intentionally remains inactive and unverified;
-		// the public resend mutation can retry delivery later.
-		return nil, err
+
+	updated := false
+	if user.FirstName == "" && firstName != "" {
+		user.FirstName = firstName
+		updated = true
 	}
-	return &dto.RegisterResponse{
-		Registered: true, Email: user.Email,
-		ExpiresInSeconds:   verification.ExpiresInSeconds,
-		ResendAfterSeconds: verification.ResendAfterSeconds,
-	}, nil
+	if user.LastName == "" && lastName != "" {
+		user.LastName = lastName
+		updated = true
+	}
+	if updated {
+		if err := uc.users.Update(ctx, user); err != nil {
+			return nil, err
+		}
+	}
+	return &dto.RegisterResponse{Registered: true, Email: user.Email}, nil
 }

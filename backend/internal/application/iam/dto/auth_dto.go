@@ -11,6 +11,15 @@ type RequestLoginCodeRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
 
+// PasswordLoginRequest signs in with the optional local/test password
+// credential. Accounts without a password continue using the OTP flow.
+type PasswordLoginRequest struct {
+	Email           string      `json:"email" validate:"required,email"`
+	Password        string      `json:"password" validate:"required,min=8,max=128"`
+	Device          *DeviceInfo `json:"device,omitempty"`
+	DeviceSignature string      `json:"device_signature" validate:"omitempty,max=256"`
+}
+
 // RequestLoginCodeResponse is what the caller gets back.
 //
 // It carries no signal about whether the address belongs to an account. The
@@ -36,6 +45,10 @@ type DeviceInfo struct {
 	Fingerprint string `json:"fingerprint" validate:"omitempty,min=16,max=128"`
 	Name        string `json:"name" validate:"omitempty,max=255"`
 	Platform    string `json:"platform" validate:"omitempty,max=32"`
+	// MACAddress is the active network adapter address reported by Desktop.
+	// It is normalised server-side before persistence; the request IP is never
+	// accepted from the client and is observed by the server instead.
+	MACAddress string `json:"mac_address" validate:"omitempty,max=32"`
 	// PublicKey, cihazın ürettiği anahtar çiftinin genel yarısı (base64,
 	// Ed25519). Yalnızca ilk kayıtta gönderilir; özel anahtar işletim
 	// sisteminin güvenli deposunda kalır ve sunucuya hiç gelmez.

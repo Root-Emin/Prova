@@ -30,13 +30,34 @@ func (r *smokeRunner) run() error {
 		return fmt.Errorf("anahtar çifti üretilemedi: %w", err)
 	}
 
-	// --- 1. Kayıt ve ayrı e-posta doğrulaması ---
-	if err := r.registerAndVerify(email); err != nil {
-		return fmt.Errorf("kayıt/e-posta doğrulama başarısız: %w", err)
+	// --- 1. Yönetici oturumu ---
+	admin, err := r.loginAdmin()
+	if err != nil {
+		return fmt.Errorf("yönetici girişi başarısız: %w", err)
 	}
-	r.record("kayıt ve e-posta doğrulama", email)
+	r.record("yönetici oturumu açıldı", "kurum kullanıcıları yönetilebilir")
 
-	// --- 2. Giriş kodu iste ---
+	// --- 2. Yönetici kullanıcıyı davet eder ---
+	if err := r.inviteUser(admin, email); err != nil {
+		return fmt.Errorf("kullanıcı davet edilemedi: %w", err)
+	}
+	mailCount, err := r.mailCount(email)
+	if err != nil {
+		return fmt.Errorf("davet sonrası posta kutusu okunamadı: %w", err)
+	}
+	if mailCount != 0 {
+		return fmt.Errorf("davet anında kod gönderilmemeliydi; %d ileti bulundu", mailCount)
+	}
+	invited, err := r.organizationUser(admin, email)
+	if err != nil {
+		return fmt.Errorf("davet edilen kullanıcı yönetici listesinde yok: %w", err)
+	}
+	if invited.MembershipStatus != "INVITED" || len(invited.Devices) != 0 {
+		return fmt.Errorf("beklenen davetli/cihazsız kullanıcı yerine durum=%s, cihaz=%d geldi", invited.MembershipStatus, len(invited.Devices))
+	}
+	r.record("yönetici kullanıcıyı davet etti", "davetli listede, e-posta henüz gönderilmedi")
+
+	// --- 3. Desktop ilk giriş kodunu ister ---
 	if err := r.requestCode(email); err != nil {
 		return fmt.Errorf("kod istenemedi: %w", err)
 	}
@@ -48,19 +69,17 @@ func (r *smokeRunner) run() error {
 	if !ok {
 		return fmt.Errorf("iletide kod yok")
 	}
-	link, hasLink := magicLink(body)
-	linkNote := "yalnızca kod"
-	if hasLink {
-		linkNote = "kod + magic link"
+	if _, hasLink := magicLink(body); hasLink {
+		return fmt.Errorf("ilk Desktop giriş kodu magic link içermemeliydi")
 	}
-	r.record("kod istendi", fmt.Sprintf("%s (%s)", email, linkNote))
-	_ = link
+	r.record("Desktop kodu istedi", email)
 
-	// --- 3. Giriş yap ve cihaz kaydet ---
+	// --- 4. Desktop doğrular, hesap etkinleşir ve cihaz kaydedilir ---
 	auth, err := r.verifyCode(email, code, &deviceInput{
 		Fingerprint: fingerprint,
 		Name:        "Duman testi cihazı",
 		Platform:    "darwin",
+		MACAddress:  "A4:83:E7:1C:9D:02",
 		PublicKey:   keys.publicB64,
 	}, "")
 	if err != nil {
@@ -69,16 +88,27 @@ func (r *smokeRunner) run() error {
 	if auth.Device == nil {
 		return fmt.Errorf("cihaz eşleşmedi")
 	}
-	r.record("kod doğrulandı, cihaz kaydedildi",
+	if auth.OrganizationID != demoOrg {
+		return fmt.Errorf("davet edenin organizasyonu beklenirdi, %s geldi", auth.OrganizationID)
+	}
+	registered, err := r.organizationUser(admin, email)
+	if err != nil {
+		return fmt.Errorf("doğrulanan kullanıcı yönetici listesinde yok: %w", err)
+	}
+	if registered.MembershipStatus != "ACTIVE" || len(registered.Devices) != 1 {
+		return fmt.Errorf("doğrulama sonrası aktif üyelik ve bir cihaz bekleniyordu; durum=%s, cihaz=%d", registered.MembershipStatus, len(registered.Devices))
+	}
+	device := registered.Devices[0]
+	if device.Name != "Duman testi cihazı" || device.IPAddress == "" || device.MACAddress != "A4:83:E7:1C:9D:02" {
+		return fmt.Errorf("yönetici cihaz bilgisi eksik: ad=%q ip=%q mac=%q", device.Name, device.IPAddress, device.MACAddress)
+	}
+	r.record("Desktop doğruladı, cihaz yöneticide göründü",
 		fmt.Sprintf("platform %s, yeni=%t", auth.Device.Platform, auth.Device.IsNew))
 
-	// --- 4. Cihaz challenge'ı ile ikinci giriş ---
+	// --- 5. Cihaz challenge'ı ile ikinci giriş ---
 	challenge, err := r.deviceChallenge(email, fingerprint)
 	if err != nil {
 		return fmt.Errorf("challenge alınamadı: %w", err)
-	}
-	if err := r.joinDemoOrg(auth.User.ID); err != nil {
-		return fmt.Errorf("demo organizasyonuna alınamadı: %w", err)
 	}
 	if err := r.requestCode(email); err != nil {
 		return fmt.Errorf("ikinci kod istenemedi: %w", err)
@@ -92,7 +122,7 @@ func (r *smokeRunner) run() error {
 		return fmt.Errorf("ikinci iletide kod yok")
 	}
 	auth, err = r.verifyCode(email, code, &deviceInput{
-		Fingerprint: fingerprint, Platform: "darwin",
+		Fingerprint: fingerprint, Platform: "darwin", MACAddress: "A4:83:E7:1C:9D:02",
 	}, keys.sign(challenge))
 	if err != nil {
 		return fmt.Errorf("challenge imzasıyla giriş başarısız: %w", err)
@@ -105,14 +135,14 @@ func (r *smokeRunner) run() error {
 	r.record("cihaz challenge'ı imzalanarak girildi",
 		fmt.Sprintf("org %s…, refresh token alındı", auth.OrganizationID[:8]))
 
-	// --- 4. Oturum başlat ---
+	// --- 6. Oturum başlat ---
 	session, err := r.startSession(token, smokeScenario)
 	if err != nil {
 		return fmt.Errorf("oturum başlatılamadı: %w", err)
 	}
 	r.record("oturum başlatıldı", session[:8]+"…")
 
-	// --- 5. Birkaç konuşma sırası ---
+	// --- 7. Birkaç konuşma sırası ---
 	messages := []string{
 		"Merhaba, ben müşteri hizmetlerinden Ayşe. Size nasıl yardımcı olabilirim?",
 		"Anlıyorum. İade koşullarımız için sipariş numaranızı alabilir miyim?",
@@ -134,13 +164,13 @@ func (r *smokeRunner) run() error {
 	r.record("konuşma sıraları gönderildi",
 		fmt.Sprintf("%d mesaj, transkript %d sıra", len(messages), len(turns)))
 
-	// --- 6. Oturumu bitir ---
+	// --- 8. Oturumu bitir ---
 	if err := r.endSession(token, session); err != nil {
 		return fmt.Errorf("oturum bitirilemedi: %w", err)
 	}
 	r.record("oturum bitirildi ve puanlandı", "")
 
-	// --- 7. Skoru al ---
+	// --- 9. Skoru al ---
 	score, err := r.sessionScore(token, session)
 	if err != nil {
 		return fmt.Errorf("skor alınamadı: %w", err)
@@ -152,7 +182,7 @@ func (r *smokeRunner) run() error {
 	r.record("skor alındı",
 		fmt.Sprintf("%.1f/%.1f → %s (model %s)", score.Total, score.MaxTotal, outcome, score.Model))
 
-	// --- 8. Alıntıları doğrula ---
+	// --- 10. Alıntıları doğrula ---
 	verified, fabricated := 0, 0
 	for _, criterion := range score.Criteria {
 		if criterion.QuoteVerified {
@@ -174,11 +204,7 @@ func (r *smokeRunner) run() error {
 		fmt.Sprintf("%d/%d transkriptte bulundu, %d uydurma işaretlendi",
 			verified, len(score.Criteria), fabricated))
 
-	// --- 9. Skoru ez ---
-	admin, err := r.loginAdmin()
-	if err != nil {
-		return fmt.Errorf("yönetici girişi başarısız: %w", err)
-	}
+	// --- 11. Skoru ez ---
 	overridden, err := r.overrideScore(admin, score.ID, 30, true, "Duman testi: itiraz sonrası düzeltme")
 	if err != nil {
 		return fmt.Errorf("skor ezilemedi: %w", err)
@@ -199,7 +225,7 @@ func (r *smokeRunner) run() error {
 	}
 	r.record("ezme kaydı çalışandan gizli", "override alanı null")
 
-	// --- 10. Token yenileme (rotasyon) ---
+	// --- 12. Token yenileme (rotasyon) ---
 	rotated, err := r.refreshToken(refresh)
 	if err != nil {
 		return fmt.Errorf("token yenilenemedi: %w", err)
@@ -210,7 +236,7 @@ func (r *smokeRunner) run() error {
 	token = rotated.AccessToken
 	r.record("token yenilendi (rotasyon)", "yeni access + refresh çifti")
 
-	// --- 11. Veriyi dışa aktar ---
+	// --- 13. Veriyi dışa aktar ---
 	export, err := r.exportData(token)
 	if err != nil {
 		return fmt.Errorf("veri dışa aktarılamadı: %w", err)
@@ -229,7 +255,7 @@ func (r *smokeRunner) run() error {
 	r.record("veri dışa aktarıldı",
 		fmt.Sprintf("%d oturum, transkript ve puan dâhil", len(sessions)))
 
-	// --- 12. Hesabı sil ---
+	// --- 14. Hesabı sil ---
 	if err := r.requestDeletion(token); err != nil {
 		return fmt.Errorf("silme talebi verilemedi: %w", err)
 	}
@@ -242,7 +268,7 @@ func (r *smokeRunner) run() error {
 	}
 	r.record("hesap silme talebi verildi", "durum pending_deletion")
 
-	// --- 13. Kalıcı silmeyi tetikle ---
+	// --- 15. Kalıcı silmeyi tetikle ---
 	//
 	// Bekleme süresini beklemek yerine tarih geçmişe çekiliyor. İşin kendisi
 	// zaten "tarihi geçmiş olanları sil" mantığıyla çalışıyor, ve duman
@@ -266,7 +292,7 @@ func (r *smokeRunner) run() error {
 	}
 	r.record("kalıcı silme tamamlandı", "e-posta null, durum deleted")
 
-	// --- 14. Oturum kimliksizleştirildi ama duruyor ---
+	// --- 16. Oturum kimliksizleştirildi ama duruyor ---
 	anonymized, err := mongo(fmt.Sprintf(
 		`JSON.stringify(db.sessions.findOne({_id: UUID("%s")}, {anonymized:1, _id:0}))`, session))
 	if err != nil {
@@ -290,7 +316,7 @@ func (r *smokeRunner) run() error {
 	r.record("oturum kimliksiz, puan ve denetim korundu",
 		fmt.Sprintf("%s puan, %s denetim kaydı", strings.TrimSpace(scores), auditCount))
 
-	// --- 15. Silinen hesabın token'ı artık çalışmamalı ---
+	// --- 17. Silinen hesabın token'ı artık çalışmamalı ---
 	resp, err := r.query(token, `{ me { email } }`)
 	if err != nil {
 		return err

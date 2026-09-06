@@ -36,6 +36,15 @@ const roleOptions = Object.fromEntries(
   invitableRoles.map((role) => [role, userRoleLabel[role]])
 )
 
+
+function inviteErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : "Bir hata oluştu."
+  if (/account already exists/i.test(raw)) {
+    return "Bu e-posta için zaten doğrulanmış bir hesap var."
+  }
+  return raw
+}
+
 export function InviteDialog({
   departmentId,
   lockDepartment = false,
@@ -75,29 +84,34 @@ export function InviteDialog({
     setIsSubmitting(true)
     try {
       const data = await graphqlRequest<{
-        register: {
-          registered: boolean
+        inviteUser: {
+          invited: boolean
           email: string
-          resendAfterSeconds: number
         }
       }>(
-        `mutation Register($input: RegisterInput!) {
-          register(input: $input) {
-            registered
+        `mutation InviteUser($input: InviteUserInput!) {
+          inviteUser(input: $input) {
+            invited
             email
-            resendAfterSeconds
           }
         }`,
-        { input: { email: address, firstName, lastName } },
+        {
+          input: {
+            email: address,
+            firstName,
+            lastName,
+            role: role === "org-admin" ? "ORG_ADMIN" : "EMPLOYEE",
+          },
+        },
       )
 
       addUsers(
-        [{ email: data.register.email, name: name.trim(), role }],
+        [{ email: data.inviteUser.email, name: name.trim(), role }],
         target,
         "invite",
       )
-      toast.success("Davet gönderildi", {
-        description: `${data.register.email} adresine doğrulama kodu gönderildi.`,
+      toast.success("Kullanıcı eklendi", {
+        description: `${data.inviteUser.email} Desktop'tan ilk giriş yaptığında doğrulama kodu gönderilecek.`,
       })
       setName("")
       setEmail("")
@@ -105,8 +119,7 @@ export function InviteDialog({
       setOpen(false)
     } catch (error) {
       toast.error("Davet gönderilemedi", {
-        description:
-          error instanceof Error ? error.message : "Bir hata oluştu.",
+        description: inviteErrorMessage(error),
       })
     } finally {
       setIsSubmitting(false)
@@ -124,8 +137,8 @@ export function InviteDialog({
           <DialogHeader>
             <DialogTitle>Kullanıcı davet et</DialogTitle>
             <DialogDescription>
-              Davet edilen kişi masaüstü uygulamasından kendi adresiyle giriş
-              yapana kadar sınava giremez.
+              Kullanıcı yalnızca Desktop uygulamasından kendi adresiyle giriş
+              yapabilir. Doğrulama kodu ilk giriş isteğinde gönderilir.
             </DialogDescription>
           </DialogHeader>
 
@@ -198,7 +211,7 @@ export function InviteDialog({
               Vazgeç
             </DialogClose>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Gönderiliyor…" : "Daveti gönder"}
+              {isSubmitting ? "Ekleniyor…" : "Kullanıcıyı ekle"}
             </Button>
           </DialogFooter>
         </form>

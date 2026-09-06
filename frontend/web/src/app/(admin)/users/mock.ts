@@ -2,12 +2,12 @@
  * Kullanıcı yaşam döngüsü:
  *
  *   expected  Excel ile yüklendi, adres tanımlı, henüz giriş yok
- *   invited   tek tek davet edildi, adres doğrulanmadı
+ *   invited   yönetici tek tek ekledi, adres doğrulanmadı
  *   active    masaüstü uygulamasından kendi adresiyle giriş yaptı
  *   inactive  yönetici pasifleştirdi, oturum açamaz
  *
- * `expected` ile `invited` arasındaki fark davet postasının gidip gitmediğidir;
- * ikisi de henüz oturum açmamıştır ve cihaz bilgisi taşımaz.
+ * `expected` ile `invited` arasındaki fark eklenme yoludur; kod e-postası
+ * ikisinde de yalnızca Desktop'taki ilk giriş isteğinde gönderilir.
  */
 export type UserStatus = "active" | "expected" | "invited" | "inactive"
 
@@ -69,9 +69,9 @@ export const userStatusLabel: Record<UserStatus, string> = {
 }
 
 export const userStatusHint: Record<UserStatus, string> = {
-  active: "Masaüstü uygulamasından giriş yaptı, cihazı kayıtlı.",
-  expected: "Toplu yükleme ile tanımlandı, ilk girişi bekleniyor.",
-  invited: "Davet gönderildi, adres henüz doğrulanmadı.",
+	active: "Masaüstü uygulamasından giriş yaptı, cihazı kayıtlı.",
+	expected: "Toplu yükleme ile tanımlandı, Desktop'tan ilk girişi bekleniyor.",
+	invited: "Yönetici ekledi; Desktop'tan ilk giriş ve e-posta doğrulaması bekleniyor.",
   inactive: "Pasifleştirildi; oturum açamaz, sınava giremez.",
 }
 

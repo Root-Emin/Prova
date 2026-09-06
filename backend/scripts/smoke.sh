@@ -41,15 +41,18 @@ export LIFECYCLE_PURGE_INTERVAL_SECONDS=5
 export LIFECYCLE_PURGE_ENABLED=true
 
 MOCKLLM_PORT="${MOCKLLM_PORT:-8099}"
+PERSONA_PORT="${PERSONA_PORT:-8090}"
 MAILPIT_URL="${MAILPIT_URL:-http://localhost:8025}"
 MOCKLLM_URL="http://localhost:${MOCKLLM_PORT}"
+PERSONA_URL="http://127.0.0.1:${PERSONA_PORT}"
+export AI_SERVICE_URL="${AI_SERVICE_URL:-$PERSONA_URL}"
 
 log()  { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
   [[ "${KEEP_RUNNING:-0}" == "1" ]] && return
-  for name in server mockllm; do
+  for name in server mockllm persona; do
     if [[ -f "$RUN_DIR/$name.pid" ]]; then
       kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true
       rm -f "$RUN_DIR/$name.pid"
@@ -80,6 +83,14 @@ if [[ "${REUSE:-0}" != "1" ]]; then
   echo $! > "$RUN_DIR/mockllm.pid"
   disown
   wait_for "$MOCKLLM_URL/v1/models" || die "sahte sağlayıcı ayağa kalkmadı"
+
+  log "sahte Persona sağlayıcısı"
+  AI_PERSONA_PROVIDER=mock PYTHONUNBUFFERED=1 \
+    python3 "$BACKEND_DIR/ml/persona_service/server.py" --host 127.0.0.1 --port "$PERSONA_PORT" \
+    > "$RUN_DIR/persona.log" 2>&1 &
+  echo $! > "$RUN_DIR/persona.pid"
+  disown
+  wait_for "$PERSONA_URL/health" || die "sahte Persona sağlayıcısı ayağa kalkmadı"
 
   go run ./cmd/seed >/dev/null 2>&1 || die "tohumlama başarısız"
   docker exec prova-mongo mongosh --quiet prova --eval \

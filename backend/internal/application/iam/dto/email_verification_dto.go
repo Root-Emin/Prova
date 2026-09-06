@@ -9,10 +9,8 @@ type RegisterRequest struct {
 }
 
 type RegisterResponse struct {
-	Registered         bool   `json:"registered"`
-	Email              string `json:"email"`
-	ExpiresInSeconds   int    `json:"expires_in_seconds"`
-	ResendAfterSeconds int    `json:"resend_after_seconds"`
+	Registered bool   `json:"registered"`
+	Email      string `json:"email"`
 }
 
 type RequestEmailVerificationCodeRequest struct {

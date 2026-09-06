@@ -2,6 +2,8 @@
 
 import * as React from "react"
 
+import { graphqlRequest } from "@/lib/graphql"
+
 import {
   departments as departmentSeed,
   departmentIdFrom,
@@ -11,13 +13,15 @@ import {
   type User,
   type UserRole,
   type UserSource,
+  type UserStatus,
+  type Workstation,
 } from "./mock"
 
 /**
- * Kurumun kişi ve departman listesi. Arka uç bağlanana kadar tek kaynak
- * burasıdır; sağlayıcı `(admin)` düzeninde durur, böylece kullanıcı ekranları
- * ile atama ekranı aynı listeyi okur: bir kişi silindiğinde ataması da
- * listelerden düşer.
+ * Kurumun kişi ve departman listesi. Departman taslağı bu arayüzün yerel
+ * düzenidir; kimlik, ilk giriş durumu ve cihazlar yetkili yönetim API'sinden
+ * düzenli olarak yenilenir. Böylece Desktop'ta tamamlanan ilk doğrulama,
+ * sayfa yenilemeden de yönetici ekranına yansır.
  */
 type UsersContextValue = {
   departments: Department[]
@@ -41,9 +45,144 @@ type UsersContextValue = {
 
 const UsersContext = React.createContext<UsersContextValue | null>(null)
 
+type OrganizationUsersResponse = {
+  organizationUsers: Array<{
+    membershipStatus: "INVITED" | "ACTIVE"
+    invitedAt: string
+    user: {
+      id: string
+      email: string
+      firstName: string
+      lastName: string
+      status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING_DELETION" | "DELETED"
+      emailVerified: boolean
+    }
+    devices: Array<{
+      id: string
+      name: string
+      platform: string
+      ipAddress: string
+      macAddress: string
+      lastSeenAt: string
+      createdAt: string
+      revokedAt: string | null
+    }>
+  }>
+}
+
+function displayTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "—"
+  return new Intl.DateTimeFormat("tr-TR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date)
+}
+
+function mapOrganizationUser(
+  remote: OrganizationUsersResponse["organizationUsers"][number],
+  previous: User | undefined,
+  departmentId: string,
+): User {
+  const workstations: Workstation[] = remote.devices
+    .filter((device) => !device.revokedAt)
+    .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))
+    .map((device, index) => ({
+      id: device.id,
+      hostname: device.name || "Bilinmeyen cihaz",
+      ip: device.ipAddress || "—",
+      mac: device.macAddress || "—",
+      os: device.platform,
+      registeredAt: displayTime(device.createdAt),
+      lastSeenAt: displayTime(device.lastSeenAt),
+      current: index === 0,
+    }))
+  const latestDevice = remote.devices
+    .filter((device) => !device.revokedAt)
+    .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))[0]
+  const active =
+    remote.membershipStatus === "ACTIVE" &&
+    remote.user.status === "ACTIVE" &&
+    remote.user.emailVerified
+  const status: UserStatus = active
+    ? "active"
+    : remote.user.status === "SUSPENDED" || remote.user.status === "DELETED"
+      ? "inactive"
+      : "invited"
+  const name = `${remote.user.firstName} ${remote.user.lastName}`.trim() || remote.user.email
+
+  return {
+    id: remote.user.id,
+    name,
+    email: remote.user.email,
+    title: previous?.title ?? "Tanımlanmadı",
+    role: previous?.role ?? "employee",
+    status,
+    departmentId: previous?.departmentId ?? departmentId,
+    source: previous?.source ?? "invite",
+    addedAt: displayTime(remote.invitedAt),
+    lastLoginAt: latestDevice ? displayTime(latestDevice.lastSeenAt) : null,
+    workstations,
+  }
+}
+
 export function UsersProvider({ children }: { children: React.ReactNode }) {
   const [departments, setDepartments] = React.useState<Department[]>(departmentSeed)
   const [users, setUsers] = React.useState<User[]>(userSeed)
+
+  React.useEffect(() => {
+    let disposed = false
+
+    async function refreshOrganizationUsers() {
+      if (!window.localStorage.getItem("prova:access-token")) return
+      try {
+        const data = await graphqlRequest<OrganizationUsersResponse>(
+          `query OrganizationUsers {
+            organizationUsers {
+              membershipStatus
+              invitedAt
+              user { id email firstName lastName status emailVerified }
+              devices {
+                id name platform ipAddress macAddress lastSeenAt createdAt revokedAt
+              }
+            }
+          }`,
+          {},
+        )
+        if (disposed) return
+        setUsers((previous) => {
+          const remoteByEmail = new Map(
+            data.organizationUsers.map((record) => [record.user.email.toLowerCase(), record]),
+          )
+          const retained = previous.filter(
+            (user) => !remoteByEmail.has(user.email.toLowerCase()),
+          )
+          const merged = data.organizationUsers.map((record) =>
+            mapOrganizationUser(
+              record,
+              previous.find(
+                (user) => user.email.toLowerCase() === record.user.email.toLowerCase(),
+              ),
+              departmentSeed[0]?.id ?? "genel",
+            ),
+          )
+          return [...merged, ...retained]
+        })
+      } catch {
+        // Yönetim paneli oturum açılmadan da yerel taslağını gösterebilir.
+        // Yetki veya ağ hatası kullanıcı listesini sıfırlamamalıdır.
+      }
+    }
+
+    void refreshOrganizationUsers()
+    const interval = window.setInterval(refreshOrganizationUsers, 15_000)
+    window.addEventListener("focus", refreshOrganizationUsers)
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+      window.removeEventListener("focus", refreshOrganizationUsers)
+    }
+  }, [])
 
   const value = React.useMemo<UsersContextValue>(() => {
     return {

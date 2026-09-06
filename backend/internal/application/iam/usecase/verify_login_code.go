@@ -141,6 +141,20 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 		})
 		return nil, errInvalidCode()
 	}
+	if user == nil {
+		user, err = uc.resolveUser(ctx, email)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// A pending organisation invite must complete its first proof from
+	// Desktop. Check before consuming the code so a user who accidentally
+	// opens a web flow can continue in Desktop with the same code.
+	if !user.IsEmailVerified() && (req.Device == nil || req.Device.Fingerprint == "") {
+		return nil, domainErr.New(domainErr.ErrForbidden,
+			"first login must be completed from the Prova Desktop application", nil)
+	}
 
 	// Burn the code before doing anything else. Two requests arriving with the
 	// same correct code must not both produce a session.
@@ -152,14 +166,26 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 		return nil, errInvalidCode()
 	}
 
-	if user == nil {
-		user, err = uc.resolveUser(ctx, email)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if !user.IsEmailVerified() {
+	if user.IsDeleted() {
 		return nil, errInvalidCode()
+	}
+
+	// First-launch / invite redemption: a correct login code proves mailbox
+	// ownership for a provisioned unverified account. MarkEmailVerified also
+	// activates inactive users so they can enter the product immediately.
+	if !user.IsEmailVerified() {
+		updated, markErr := uc.Users.MarkEmailVerified(ctx, user.ID, model.NormalizeEmail(user.Email), now)
+		if markErr != nil {
+			return nil, markErr
+		}
+		if !updated {
+			return nil, errInvalidCode()
+		}
+		verifiedAt := now
+		user.EmailVerifiedAt = &verifiedAt
+		if user.Status == model.UserStatusInactive {
+			user.Status = model.UserStatusActive
+		}
 	}
 
 	// Kilitli hesap, kodu doğru bilse bile giremez. Yanıt, geçersiz kodla
@@ -191,7 +217,7 @@ func (uc *VerifyLoginCodeUseCase) Execute(ctx context.Context, req dto.VerifyLog
 		}
 	}
 
-	return uc.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, now, "code")
+	return uc.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, requestIP, now, "code")
 }
 
 // CompleteLogin, kimliği kanıtlanmış bir kullanıcı için oturumu açar.
@@ -205,10 +231,11 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 	user *model.User,
 	deviceInfo *dto.DeviceInfo,
 	deviceSignature string,
+	requestIP string,
 	now time.Time,
 	method string,
 ) (*dto.VerifyLoginCodeResponse, error) {
-	paired, err := uc.pairDevice(ctx, user, deviceInfo, deviceSignature, now)
+	paired, err := uc.pairDevice(ctx, user, deviceInfo, deviceSignature, requestIP, now)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +291,7 @@ func (uc *VerifyLoginCodeUseCase) CompleteLogin(
 		return nil, domainErr.New(domainErr.ErrInternal, "failed to generate token", err)
 	}
 
-	uc.Log.InfoContext(ctx, "passwordless login completed",
+	uc.Log.InfoContext(ctx, "login completed",
 		"user_id", user.ID,
 		"org_id", orgID,
 		"method", method,
@@ -384,13 +411,13 @@ func (uc *VerifyLoginCodeUseCase) chargeAccountAttempt(ctx context.Context, emai
 	}
 }
 
-// resolveUser returns an existing verified account. Registration and mailbox
-// ownership verification are separate workflows and never happen here.
+// resolveUser returns an existing non-deleted account. Invited unverified users
+// are allowed through so a correct login code can complete first-launch activation.
 func (uc *VerifyLoginCodeUseCase) resolveUser(ctx context.Context, email string) (*model.User, error) {
 	user, err := uc.Users.GetByEmail(ctx, email)
 	switch {
 	case err == nil:
-		if !user.IsEmailVerified() {
+		if user.IsDeleted() {
 			return nil, errInvalidCode()
 		}
 		return user, nil
@@ -408,7 +435,7 @@ func (uc *VerifyLoginCodeUseCase) resolveUser(ctx context.Context, email string)
 // Pairing happens at this exact moment by design: the mailbox has just been
 // proven, and the machine is present. Doing it later, as a separate opt-in
 // step, would leave sessions that no certificate can be traced back to.
-func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.User, info *dto.DeviceInfo, signature string, now time.Time) (*dto.PairedDevice, error) {
+func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.User, info *dto.DeviceInfo, signature, requestIP string, now time.Time) (*dto.PairedDevice, error) {
 	if info == nil || info.Fingerprint == "" {
 		// The web panel has no hardware identity. It signs in fine; it just
 		// cannot host a certificate-bearing exam.
@@ -425,6 +452,8 @@ func (uc *VerifyLoginCodeUseCase) pairDevice(ctx context.Context, user *model.Us
 		PublicKey:   info.PublicKey,
 		Name:        info.Name,
 		Platform:    model.NormalizePlatform(info.Platform),
+		IPAddress:   model.NormalizeIPAddress(requestIP),
+		MACAddress:  model.NormalizeMACAddress(info.MACAddress),
 		LastSeenAt:  now,
 	}
 

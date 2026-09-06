@@ -69,6 +69,27 @@ func (s *MembershipService) ResolveActiveOrg(ctx context.Context, userID uuid.UU
 		return chosen.OrganizationID, nil
 	}
 
+	// ResolveActiveOrg is called only after the code or magic link has proved
+	// mailbox ownership. At that moment the oldest pending organisation invite
+	// becomes active instead of creating an unrelated personal organisation.
+	var invited *iamModel.OrganizationUser
+	for _, m := range memberships {
+		if m.Status != iamModel.OrgUserStatusInvited {
+			continue
+		}
+		if invited == nil || m.CreatedAt.Before(invited.CreatedAt) {
+			invited = m
+		}
+	}
+	if invited != nil {
+		activated := *invited
+		activated.Status = iamModel.OrgUserStatusActive
+		if err := s.orgUsers.Add(ctx, &activated); err != nil {
+			return uuid.Nil, err
+		}
+		return activated.OrganizationID, nil
+	}
+
 	return s.provisionPersonalOrg(ctx, userID, email)
 }
 

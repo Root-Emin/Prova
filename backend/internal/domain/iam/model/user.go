@@ -24,12 +24,13 @@ const (
 
 // User represents a platform user entity.
 //
-// There is no password field and there never should be. The account's only
-// credential is a reachable mailbox, proven by redeeming a one-time code;
-// EmailVerifiedAt records when that first happened.
+// PasswordHash is optional. Production accounts may continue to use the
+// passwordless mailbox flow; seeded development accounts also support the
+// explicit password login used by local test environments.
 type User struct {
 	ID              uuid.UUID  `json:"id"`
 	Email           string     `json:"email"`
+	PasswordHash    string     `json:"-"`
 	FirstName       string     `json:"first_name"`
 	LastName        string     `json:"last_name"`
 	Status          UserStatus `json:"status"`

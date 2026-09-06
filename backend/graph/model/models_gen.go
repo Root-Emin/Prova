@@ -118,11 +118,15 @@ type DeletionStatus struct {
 }
 
 type Device struct {
-	ID         uuid.UUID      `json:"id"`
-	Name       string         `json:"name"`
-	Platform   DevicePlatform `json:"platform"`
-	LastSeenAt time.Time      `json:"lastSeenAt"`
-	RevokedAt  *time.Time     `json:"revokedAt,omitempty"`
+	ID       uuid.UUID      `json:"id"`
+	Name     string         `json:"name"`
+	Platform DevicePlatform `json:"platform"`
+	// Başarılı son girişte sunucunun gözlemlediği kaynak IP adresi.
+	IPAddress string `json:"ipAddress"`
+	// Desktop'ın etkin ağ bağdaştırıcısından aldığı MAC adresi.
+	MacAddress string     `json:"macAddress"`
+	LastSeenAt time.Time  `json:"lastSeenAt"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
 	// Anahtar çifti kayıtlı mı. Değilse cihaz yalnızca eski parmak izi eşleşmesiyle tanınır.
 	HasPublicKey bool      `json:"hasPublicKey"`
 	CreatedAt    time.Time `json:"createdAt"`
@@ -147,6 +151,8 @@ type DeviceInput struct {
 	// Cihazın ürettiği açık anahtar (base64, Ed25519). Özel anahtar işletim
 	// sisteminin güvenli deposunda kalır ve sunucuya hiç gelmez.
 	PublicKey *string `json:"publicKey,omitempty"`
+	// Desktop'ın etkin ağ bağdaştırıcısının MAC adresi.
+	MacAddress *string `json:"macAddress,omitempty"`
 }
 
 // Bir oturumdan, oynandığı belgenin tam sürümüne işaret eden bağ.
@@ -157,6 +163,18 @@ type DocumentRef struct {
 	LineageID uuid.UUID `json:"lineageId"`
 	VersionID uuid.UUID `json:"versionId"`
 	Version   int       `json:"version"`
+}
+
+type InviteUserInput struct {
+	Email     string     `json:"email"`
+	FirstName string     `json:"firstName"`
+	LastName  string     `json:"lastName"`
+	Role      InviteRole `json:"role"`
+}
+
+type InviteUserPayload struct {
+	Invited bool   `json:"invited"`
+	Email   string `json:"email"`
 }
 
 // Profili canlıya almadan tek seferlik deneme sonucu.
@@ -208,6 +226,15 @@ type LLMProfileInput struct {
 type Mutation struct {
 }
 
+// Yöneticinin kendi kurumunda gördüğü kullanıcı. Cihazlar, yalnızca başarılı
+// Desktop doğrulamasından sonra dolu olur.
+type OrganizationUser struct {
+	User             *User                        `json:"user"`
+	MembershipStatus OrganizationMembershipStatus `json:"membershipStatus"`
+	InvitedAt        time.Time                    `json:"invitedAt"`
+	Devices          []*Device                    `json:"devices"`
+}
+
 type OverrideScoreInput struct {
 	ScoreID uuid.UUID `json:"scoreId"`
 	Total   float64   `json:"total"`
@@ -223,35 +250,19 @@ type PairedDevice struct {
 	IsNew bool `json:"isNew"`
 }
 
+// E-posta ve şifre ile yerel/test girişini başlatır.
+type PasswordLoginInput struct {
+	Email           string       `json:"email"`
+	Password        string       `json:"password"`
+	Device          *DeviceInput `json:"device,omitempty"`
+	DeviceSignature *string      `json:"deviceSignature,omitempty"`
+}
+
 type Query struct {
 }
 
 type RefreshTokenInput struct {
 	RefreshToken string `json:"refreshToken"`
-}
-
-type RegisterInput struct {
-	Email     string `json:"email"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-}
-
-type RegisterPayload struct {
-	Registered         bool   `json:"registered"`
-	Email              string `json:"email"`
-	ExpiresInSeconds   int    `json:"expiresInSeconds"`
-	ResendAfterSeconds int    `json:"resendAfterSeconds"`
-}
-
-type RequestEmailVerificationCodeInput struct {
-	Email string `json:"email"`
-}
-
-type RequestEmailVerificationCodePayload struct {
-	// İstek kabul edildi; hesap varlığı veya doğrulama durumu hakkında sinyal taşımaz.
-	Sent               bool `json:"sent"`
-	ExpiresInSeconds   int  `json:"expiresInSeconds"`
-	ResendAfterSeconds int  `json:"resendAfterSeconds"`
 }
 
 type RequestLoginCodeInput struct {
@@ -470,16 +481,6 @@ type User struct {
 	CreatedAt           time.Time  `json:"createdAt"`
 }
 
-type VerifyEmailInput struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
-}
-
-type VerifyEmailPayload struct {
-	Verified   bool      `json:"verified"`
-	VerifiedAt time.Time `json:"verifiedAt"`
-}
-
 type VerifyLoginCodeInput struct {
 	Email  string       `json:"email"`
 	Code   string       `json:"code"`
@@ -675,6 +676,61 @@ func (e DocumentStatus) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+type InviteRole string
+
+const (
+	InviteRoleEmployee InviteRole = "EMPLOYEE"
+	InviteRoleOrgAdmin InviteRole = "ORG_ADMIN"
+)
+
+var AllInviteRole = []InviteRole{
+	InviteRoleEmployee,
+	InviteRoleOrgAdmin,
+}
+
+func (e InviteRole) IsValid() bool {
+	switch e {
+	case InviteRoleEmployee, InviteRoleOrgAdmin:
+		return true
+	}
+	return false
+}
+
+func (e InviteRole) String() string {
+	return string(e)
+}
+
+func (e *InviteRole) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = InviteRole(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid InviteRole", str)
+	}
+	return nil
+}
+
+func (e InviteRole) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *InviteRole) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e InviteRole) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type LLMTier string
 
 const (
@@ -727,6 +783,61 @@ func (e *LLMTier) UnmarshalJSON(b []byte) error {
 }
 
 func (e LLMTier) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type OrganizationMembershipStatus string
+
+const (
+	OrganizationMembershipStatusInvited OrganizationMembershipStatus = "INVITED"
+	OrganizationMembershipStatusActive  OrganizationMembershipStatus = "ACTIVE"
+)
+
+var AllOrganizationMembershipStatus = []OrganizationMembershipStatus{
+	OrganizationMembershipStatusInvited,
+	OrganizationMembershipStatusActive,
+}
+
+func (e OrganizationMembershipStatus) IsValid() bool {
+	switch e {
+	case OrganizationMembershipStatusInvited, OrganizationMembershipStatusActive:
+		return true
+	}
+	return false
+}
+
+func (e OrganizationMembershipStatus) String() string {
+	return string(e)
+}
+
+func (e *OrganizationMembershipStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = OrganizationMembershipStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid OrganizationMembershipStatus", str)
+	}
+	return nil
+}
+
+func (e OrganizationMembershipStatus) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *OrganizationMembershipStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e OrganizationMembershipStatus) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

@@ -70,8 +70,9 @@ Linux   ~/.config/Prova/onboarding.json
 ## E-posta ile giriş
 
 Login ekranı artık doğrudan ana süreçteki güvenli auth IPC katmanını kullanır:
-`requestLoginCode` gerçek 6 haneli kodu backend’e ister, doğrulama ekranı
-`verifyLoginCode` ile kodu tüketir. Access ve refresh token’lar renderer’a
+yerel/test hesapları `login` mutation'ıyla kullanıcı adı ve şifre üzerinden
+giriş yapar. Şifresiz hesaplar için `requestLoginCode` gerçek 6 haneli kodu
+backend’e ister, doğrulama ekranı `verifyLoginCode` ile kodu tüketir. Access ve refresh token’lar renderer’a
 verilmeden Electron safe storage içine yazılır. Backend’in gönderici ayarı
 `EMAIL_PROVIDER=resend` veya `EMAIL_PROVIDER=smtp` olmalı; Resend için
 `RESEND_API_KEY` ve `RESEND_FROM_EMAIL`, SMTP için ilgili `SMTP_*` değişkenleri

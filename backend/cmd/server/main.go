@@ -217,13 +217,10 @@ func buildDependencies(
 	userRepo := pgIam.NewUserRepo(db)
 	roleRepo := pgIam.NewRoleRepo(db)
 	var loginCodeRepo iamRepo.LoginCodeRepository = pgIam.NewLoginCodeRepo(db)
-	var emailVerificationRepo iamRepo.EmailVerificationRepository
 	if redisClient != nil {
 		// Passwordless login can use Redis when available while retaining its
-		// PostgreSQL compatibility path. E-mail verification below has no such
-		// fallback: its only adapter is Redis.
+		// PostgreSQL compatibility path.
 		loginCodeRepo = redisIam.NewLoginCodeRepo(redisClient)
-		emailVerificationRepo = redisIam.NewEmailVerificationRepo(redisClient)
 	}
 	deviceRepo := pgIam.NewDeviceRepo(db)
 	orgUserRepo := pgIam.NewOrgUserRepo(db)
@@ -243,17 +240,9 @@ func buildDependencies(
 		log.Error("parolasız kimlik doğrulama devre dışı", "error", err)
 		return deps, noop
 	}
-	emailVerificationCodeService, err := infraAuth.NewEmailVerificationCodeService(cfg.EmailVerification)
-	if err != nil {
-		log.Error("e-posta doğrulama devre dışı", "error", err)
-		return deps, noop
-	}
-
 	var limiter ratelimit.Limiter
-	var emailVerificationLimiter ratelimit.Limiter
 	if redisClient != nil {
 		limiter = ratelimit.NewRedisLimiter(redisClient, "ratelimit:auth")
-		emailVerificationLimiter = ratelimit.NewRedisLimiter(redisClient, "ratelimit:email-verification")
 	} else {
 		log.Warn("redis yok; kimlik doğrulama limitleri yalnızca bu örnek için geçerli")
 		limiter = ratelimit.NewMemoryLimiter()
@@ -280,23 +269,8 @@ func buildDependencies(
 		MagicLinks: magicLinkIssuer,
 		WebBaseURL: cfg.Token.WebBaseURL,
 	})
-	requestEmailVerificationUC := iamUC.NewRequestEmailVerificationCodeUseCase(iamUC.RequestEmailVerificationDeps{
-		Users:      userRepo,
-		Challenges: emailVerificationRepo,
-		Codes:      emailVerificationCodeService,
-		Sender:     emailSender,
-		Limiter:    emailVerificationLimiter,
-		Cfg:        cfg.EmailVerification,
-		Log:        log,
-	})
-	verifyEmailUC := iamUC.NewVerifyEmailUseCase(iamUC.VerifyEmailDeps{
-		Users:      userRepo,
-		Challenges: emailVerificationRepo,
-		Codes:      emailVerificationCodeService,
-		Cfg:        cfg.EmailVerification,
-		Log:        log,
-	})
-	registerUC := iamUC.NewRegisterUseCase(userRepo, requestEmailVerificationUC, eventBus)
+	inviteUserUC := iamUC.NewInviteUserUseCase(userRepo, orgUserRepo, roleRepo, eventBus)
+	listOrganizationUsersUC := iamUC.NewListOrganizationUsersUseCase(userRepo, orgUserRepo, deviceRepo)
 	refreshRepo := pgIam.NewRefreshTokenRepo(db)
 	refreshUC := iamUC.NewRefreshTokenUseCase(iamUC.RefreshDeps{
 		Tokens:     refreshRepo,
@@ -329,6 +303,20 @@ func buildDependencies(
 		Cfg:         cfg.Auth,
 		JWTCfg:      cfg.JWT,
 		TokenCfg:    cfg.Token,
+		Log:         log,
+	})
+	passwordLoginUC := iamUC.NewPasswordLoginUseCase(iamUC.VerifyDeps{
+		Users:       userRepo,
+		Devices:     deviceRepo,
+		Challenges:  deviceChallengeRepo,
+		Signatures:  deviceSignatures,
+		Auth:        jwtService,
+		Memberships: memberships,
+		Audit:       auditRecorder,
+		Refresh:     refreshUC,
+		Minter:      jwtService,
+		TokenCfg:    cfg.Token,
+		JWTCfg:      cfg.JWT,
 		Log:         log,
 	})
 
@@ -446,21 +434,21 @@ func buildDependencies(
 
 	// --- GraphQL ---
 	resolver := &graph.Resolver{
-		Log:                        log,
-		RegisterUC:                 registerUC,
-		RequestEmailVerificationUC: requestEmailVerificationUC,
-		VerifyEmailUC:              verifyEmailUC,
-		RequestLoginCodeUC:         requestCodeUC,
-		VerifyLoginCodeUC:          verifyCodeUC,
-		ManageDevicesUC:            manageDevicesUC,
-		LogoutUC:                   logoutUC,
-		VerifyMagicLinkUC:          verifyMagicLinkUC,
-		DeviceChallengeUC:          deviceChallengeUC,
-		AccountUC:                  accountUC,
-		RefreshTokenUC:             refreshUC,
-		Users:                      userRepo,
-		RBAC:                       rbacService,
-		AuditRepo:                  auditRepo,
+		Log:                     log,
+		InviteUserUC:            inviteUserUC,
+		ListOrganizationUsersUC: listOrganizationUsersUC,
+		PasswordLoginUC:         passwordLoginUC,
+		RequestLoginCodeUC:      requestCodeUC,
+		VerifyLoginCodeUC:       verifyCodeUC,
+		ManageDevicesUC:         manageDevicesUC,
+		LogoutUC:                logoutUC,
+		VerifyMagicLinkUC:       verifyMagicLinkUC,
+		DeviceChallengeUC:       deviceChallengeUC,
+		AccountUC:               accountUC,
+		RefreshTokenUC:          refreshUC,
+		Users:                   userRepo,
+		RBAC:                    rbacService,
+		AuditRepo:               auditRepo,
 
 		SessionUC:      sessionUC,
 		SessionRepo:    orNilSession(sessionRepo),

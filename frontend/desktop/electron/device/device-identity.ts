@@ -44,6 +44,7 @@ export class DeviceIdentityService {
       ...this.getInfo(),
       fingerprint: fingerprintOf(identity),
       publicKey: identity.publicKey,
+      macAddress: activeMacAddress(),
     }
   }
 
@@ -86,6 +87,18 @@ export class DeviceIdentityService {
     await this.storage.set(STORAGE_KEY, JSON.stringify(identity))
     return identity
   }
+}
+
+function activeMacAddress(): string {
+  const interfaces = Object.values(os.networkInterfaces()).flat()
+  const adapter = interfaces.find(
+    (item) =>
+      item &&
+      !item.internal &&
+      item.family === "IPv4" &&
+      item.mac !== "00:00:00:00:00:00",
+  )
+  return adapter?.mac?.toUpperCase() ?? ""
 }
 
 function fingerprintOf(identity: StoredDeviceIdentity): string {

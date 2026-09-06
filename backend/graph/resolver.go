@@ -28,19 +28,19 @@ type Resolver struct {
 	// Alan adları UC ile bitiyor: gqlgen'in ürettiği resolver metotları da
 	// şema alanlarının adını taşıyor (RequestLoginCode gibi), ve aynı adı
 	// taşıyan bir alan metodu gölgeler.
-	RegisterUC                 *iamUC.RegisterUseCase
-	RequestEmailVerificationUC *iamUC.RequestEmailVerificationCodeUseCase
-	VerifyEmailUC              *iamUC.VerifyEmailUseCase
-	RequestLoginCodeUC         *iamUC.RequestLoginCodeUseCase
-	VerifyLoginCodeUC          *iamUC.VerifyLoginCodeUseCase
-	ManageDevicesUC            *iamUC.ManageDevicesUseCase
-	LogoutUC                   *iamUC.LogoutUseCase
-	VerifyMagicLinkUC          *iamUC.VerifyMagicLinkUseCase
-	DeviceChallengeUC          *iamUC.RequestDeviceChallengeUseCase
-	AccountUC                  *iamUC.AccountUseCase
-	RefreshTokenUC             *iamUC.RefreshTokenUseCase
-	Users                      iamRepo.UserRepository
-	RBAC                       iamService.RBACService
+	InviteUserUC            *iamUC.InviteUserUseCase
+	ListOrganizationUsersUC *iamUC.ListOrganizationUsersUseCase
+	PasswordLoginUC         *iamUC.PasswordLoginUseCase
+	RequestLoginCodeUC      *iamUC.RequestLoginCodeUseCase
+	VerifyLoginCodeUC       *iamUC.VerifyLoginCodeUseCase
+	ManageDevicesUC         *iamUC.ManageDevicesUseCase
+	LogoutUC                *iamUC.LogoutUseCase
+	VerifyMagicLinkUC       *iamUC.VerifyMagicLinkUseCase
+	DeviceChallengeUC       *iamUC.RequestDeviceChallengeUseCase
+	AccountUC               *iamUC.AccountUseCase
+	RefreshTokenUC          *iamUC.RefreshTokenUseCase
+	Users                   iamRepo.UserRepository
+	RBAC                    iamService.RBACService
 
 	// --- denetim ---
 	AuditRepo auditRepo.AuditRepository

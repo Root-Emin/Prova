@@ -65,6 +65,12 @@ func (r *fakeOrgUserRepo) Add(_ context.Context, ou *iamModel.OrganizationUser) 
 	if ou.CreatedAt.IsZero() {
 		ou.CreatedAt = time.Now().UTC()
 	}
+	for index, existing := range r.rows {
+		if existing.OrganizationID == ou.OrganizationID && existing.UserID == ou.UserID {
+			r.rows[index] = ou
+			return nil
+		}
+	}
 	r.rows = append(r.rows, ou)
 	return nil
 }
@@ -192,8 +198,9 @@ func TestResolveActiveOrg_PicksOldestActiveMembershipDeterministically(t *testin
 	}
 }
 
-// Davet edilmiş ama kabul etmemiş üyelik bir kiracı hakkı vermez.
-func TestResolveActiveOrg_IgnoresNonActiveMemberships(t *testing.T) {
+// Davet edilmiş üyelik, yalnızca başarıyla tamamlanan giriş yolunun sonunda
+// ResolveActiveOrg çağrıldığında etkinleşir; kişisel organizasyon açılmaz.
+func TestResolveActiveOrg_ActivatesInvitedMembership(t *testing.T) {
 	svc, orgs, orgUsers, _ := newService()
 	userID, invited := uuid.New(), uuid.New()
 	orgUsers.rows = append(orgUsers.rows, &iamModel.OrganizationUser{
@@ -205,11 +212,14 @@ func TestResolveActiveOrg_IgnoresNonActiveMemberships(t *testing.T) {
 	if err != nil {
 		t.Fatalf("beklenmeyen hata: %v", err)
 	}
-	if orgID == invited {
-		t.Fatal("etkin olmayan üyelik seçilmemeli")
+	if orgID != invited {
+		t.Fatalf("davet edilmiş organizasyon etkinleşmeliydi: %s != %s", orgID, invited)
 	}
-	if len(orgs.orgs) != 1 {
-		t.Fatal("kişisel organizasyon açılmalıydı")
+	if len(orgs.orgs) != 0 {
+		t.Fatal("davet edilen kullanıcıya kişisel organizasyon açılmamalı")
+	}
+	if len(orgUsers.rows) != 1 || orgUsers.rows[0].Status != iamModel.OrgUserStatusActive {
+		t.Fatalf("üyelik etkinleşmeliydi: %+v", orgUsers.rows)
 	}
 }
 

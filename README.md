@@ -539,9 +539,12 @@ docker exec prova-mongo mongosh --quiet prova --eval \
 
 Demo hesapları:
 
-- Yönetici: `yonetici@prova.local`
-- Çalışan: `calisan@prova.local`
+- Yönetici: `yonetici@prova.local` / `SecurePass123!`
+- Çalışan: `calisan@prova.local` / `DevPass456!`
 - Geliştirme e-postaları: [http://localhost:8025](http://localhost:8025)
+
+Yerel demo hesapları kullanıcı adı/e-posta ve şifreyle doğrudan giriş yapar.
+Şifresiz hesaplar için e-posta ile tek kullanımlık kod akışı da açıktır.
 
 > [!NOTE]
 > `start.sh` şu anda Python persona servisini veya seed komutunu kendisi başlatmaz. Persona servisini ayrı terminalde çalıştırmak ve ilk kurulumda seed atmak gerekir. Kafka varsayılan olarak kapalıdır; Kafka UI ile persona servisinin varsayılan portu `8090` çakışır. Kafka açılacaksa persona portunu ve `AI_SERVICE_URL` değerini birlikte değiştirin.

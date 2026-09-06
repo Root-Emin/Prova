@@ -192,6 +192,21 @@ func (c *client) mailBody(email string) (string, error) {
 	return message.Text, nil
 }
 
+// mailCount reads Mailpit's recipient index without downloading each message.
+// It lets the smoke chain prove that an administrative invite is provisioning
+// only; the first actual delivery must be initiated by Desktop login.
+func (c *client) mailCount(email string) (int, error) {
+	searchURL := fmt.Sprintf("%s/api/v1/search?query=%s&limit=50",
+		c.mailpit, url.QueryEscape("to:"+email))
+	var list struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := c.getJSON(searchURL, &list); err != nil {
+		return 0, err
+	}
+	return len(list.Messages), nil
+}
+
 var (
 	codePattern = regexp.MustCompile(`(?m)^\s*(\d{6})\s*$`)
 	linkPattern = regexp.MustCompile(`(https?://\S*?/auth/magic\?token=[A-Za-z0-9_\-]+)`)

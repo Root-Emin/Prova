@@ -15,6 +15,16 @@ type LoginCodeData = {
   requestLoginCode: LoginCodeResponse;
 };
 
+type PasswordLoginData = {
+  login: {
+    expiresAt: string;
+    accessToken: string;
+    refreshToken: string;
+    organizationId: string;
+    user: { email: string };
+  };
+};
+
 type ChallengeData = {
   requestDeviceChallenge: {
     challenge: string;
@@ -51,6 +61,53 @@ export class DesktopAuthService {
       DEFAULT_GRAPHQL_URL,
   ) {
     this.endpoint = validateEndpoint(endpoint);
+  }
+
+  async login(email: string, password: string): Promise<LoginResult> {
+    const normalizedEmail = normalizeEmail(email);
+    if (!password || password.length < 8) throw new Error("Şifre en az 8 karakter olmalı");
+
+    const storageStatus = await this.storage.status();
+    if (!storageStatus.available) {
+      throw new Error(
+        `Güvenli oturum deposu kullanılamıyor: ${storageStatus.reason ?? "bilinmeyen neden"}`,
+      );
+    }
+
+    const data = await this.graphql<PasswordLoginData>(
+      `mutation Login($input: PasswordLoginInput!) {
+        login(input: $input) {
+          accessToken
+          refreshToken
+          expiresAt
+          organizationId
+          user { email }
+        }
+      }`,
+      { input: { email: normalizedEmail, password } },
+    );
+    const result = data.login;
+    if (
+      !result ||
+      !result.accessToken ||
+      !result.refreshToken ||
+      !result.expiresAt ||
+      !result.organizationId ||
+      result.user?.email !== normalizedEmail
+    ) {
+      throw new Error("Sunucudan geçersiz giriş yanıtı alındı");
+    }
+    await this.storage.set(
+      AUTH_SESSION_KEY,
+      JSON.stringify({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt: result.expiresAt,
+        organizationId: result.organizationId,
+        email: result.user.email,
+      } satisfies StoredAuthSession),
+    );
+    return { deviceIsNew: false, expiresAt: result.expiresAt };
   }
 
   async requestLoginCode(email: string): Promise<LoginCodeResponse> {
@@ -125,6 +182,7 @@ export class DesktopAuthService {
             name: registration.displayName,
             platform: registration.platform,
             publicKey: registration.publicKey,
+            macAddress: registration.macAddress,
           },
           deviceSignature: signature,
         },

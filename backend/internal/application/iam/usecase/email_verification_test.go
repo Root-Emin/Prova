@@ -20,7 +20,6 @@ import (
 
 	"github.com/masterfabric-go/masterfabric/internal/application/iam/dto"
 	"github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
-	notifyModel "github.com/masterfabric-go/masterfabric/internal/domain/notification/model"
 	"github.com/masterfabric-go/masterfabric/internal/shared/config"
 	domainErr "github.com/masterfabric-go/masterfabric/internal/shared/errors"
 )
@@ -207,16 +206,11 @@ func (f *emailVerificationFixture) issue(t *testing.T, email string) *model.Emai
 	return challenge
 }
 
-func TestRegister_CreatesUnverifiedUserAndSendsVerificationEmail(t *testing.T) {
+func TestRegister_ProvisionsUnverifiedUserWithoutSendingMail(t *testing.T) {
 	users := newFakeUserRepo()
 	repo := newFakeEmailVerificationRepo()
 	sender := newFakeSender()
-	codes := newFixedBoundCodeService("012345")
-	request := NewRequestEmailVerificationCodeUseCase(RequestEmailVerificationDeps{
-		Users: users, Challenges: repo, Codes: codes, Sender: sender,
-		Limiter: newFakeLimiter(), Cfg: testEmailVerificationConfig(), Log: discardLogger(),
-	})
-	registration := NewRegisterUseCase(users, request, newFakeEventBus())
+	registration := NewRegisterUseCase(users, newFakeEventBus())
 
 	result, err := registration.Execute(context.Background(), dto.RegisterRequest{
 		Email: " Ada@Example.com ", FirstName: "Ada", LastName: "Lovelace",
@@ -228,37 +222,55 @@ func TestRegister_CreatesUnverifiedUserAndSendsVerificationEmail(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, user.EmailVerifiedAt)
 	assert.Equal(t, model.UserStatusInactive, user.Status)
-	require.Len(t, sender.messages(), 1)
-	assert.Equal(t, "email_verification", sender.messages()[0].Tags["category"])
-	assert.Contains(t, sender.messages()[0].TextBody, "012345")
+	assert.Empty(t, sender.messages(), "the code is sent only after the Desktop login request")
 	challenge, err := repo.Get(context.Background(), user.ID)
-	require.NoError(t, err)
-	assert.NotEqual(t, "012345", challenge.CodeDigest)
-	assert.NotContains(t, challenge.CodeDigest, "012345")
-	assert.Equal(t, 5*time.Minute, challenge.ExpiresAt.Sub(challenge.CreatedAt))
+	assert.ErrorIs(t, err, domainErr.ErrNotFound)
+	assert.Nil(t, challenge)
 }
 
-func TestRegister_DeliveryFailureLeavesPersistedUserUnverifiedAndNoChallenge(t *testing.T) {
+func TestRegister_DoesNotDependOnEmailDelivery(t *testing.T) {
 	users := newFakeUserRepo()
-	repo := newFakeEmailVerificationRepo()
-	sender := newFakeSender()
-	sender.failWith = notifyModel.ErrDeliveryFailed
-	request := NewRequestEmailVerificationCodeUseCase(RequestEmailVerificationDeps{
-		Users: users, Challenges: repo, Codes: newFixedBoundCodeService("123456"), Sender: sender,
-		Limiter: newFakeLimiter(), Cfg: testEmailVerificationConfig(), Log: discardLogger(),
-	})
-	registration := NewRegisterUseCase(users, request, nil)
+	registration := NewRegisterUseCase(users, nil)
+
+	result, err := registration.Execute(context.Background(), dto.RegisterRequest{
+		Email: "ada@example.com", FirstName: "Ada", LastName: "Lovelace",
+	}, "")
+
+	require.NoError(t, err)
+	assert.True(t, result.Registered)
+	user, getErr := users.GetByEmail(context.Background(), "ada@example.com")
+	require.NoError(t, getErr)
+	assert.Nil(t, user.EmailVerifiedAt)
+}
+
+func TestRegister_IsIdempotentForExistingUnverifiedUser(t *testing.T) {
+	user := unverifiedUser("ada@example.com")
+	users := newFakeUserRepo(user)
+	registration := NewRegisterUseCase(users, nil)
+
+	result, err := registration.Execute(context.Background(), dto.RegisterRequest{
+		Email: "ada@example.com", FirstName: "Ada", LastName: "Lovelace",
+	}, "203.0.113.8")
+
+	require.NoError(t, err)
+	assert.True(t, result.Registered)
+	assert.Equal(t, 0, users.created, "must not create a duplicate user")
+	assert.Len(t, users.byID, 1)
+}
+
+func TestRegister_RejectsVerifiedExistingEmail(t *testing.T) {
+	now := time.Now().UTC()
+	user := unverifiedUser("ada@example.com")
+	user.EmailVerifiedAt = &now
+	user.Status = model.UserStatusActive
+	users := newFakeUserRepo(user)
+	registration := NewRegisterUseCase(users, nil)
 
 	_, err := registration.Execute(context.Background(), dto.RegisterRequest{
 		Email: "ada@example.com", FirstName: "Ada", LastName: "Lovelace",
 	}, "")
 
-	assert.ErrorIs(t, err, domainErr.ErrInternal)
-	user, getErr := users.GetByEmail(context.Background(), "ada@example.com")
-	require.NoError(t, getErr)
-	assert.Nil(t, user.EmailVerifiedAt)
-	_, challengeErr := repo.Get(context.Background(), user.ID)
-	assert.ErrorIs(t, challengeErr, domainErr.ErrNotFound)
+	assert.ErrorIs(t, err, domainErr.ErrAlreadyExists)
 }
 
 func TestVerifyEmail_ValidCodeMarksEmailVerifiedWithoutAuthentication(t *testing.T) {

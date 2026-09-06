@@ -32,6 +32,7 @@ type deviceInput struct {
 	Fingerprint string
 	Name        string
 	Platform    string
+	MACAddress  string
 	PublicKey   string
 }
 
@@ -46,6 +47,9 @@ func (d *deviceInput) render() string {
 	if d.Platform != "" {
 		parts = append(parts, fmt.Sprintf("platform:%q", d.Platform))
 	}
+	if d.MACAddress != "" {
+		parts = append(parts, fmt.Sprintf("macAddress:%q", d.MACAddress))
+	}
 	if d.PublicKey != "" {
 		parts = append(parts, fmt.Sprintf("publicKey:%q", d.PublicKey))
 	}
@@ -58,23 +62,45 @@ func (r *smokeRunner) requestCode(email string) error {
 	return err
 }
 
-func (r *smokeRunner) registerAndVerify(email string) error {
-	_, err := r.mustQuery("", fmt.Sprintf(
-		`mutation { register(input:{email:%q, firstName:"Duman", lastName:"Testi"}) { registered } }`, email))
-	if err != nil {
-		return err
-	}
-	body, err := r.mailBody(email)
-	if err != nil {
-		return err
-	}
-	code, ok := loginCode(body)
-	if !ok {
-		return fmt.Errorf("doğrulama iletisinde kod yok")
-	}
-	_, err = r.mustQuery("", fmt.Sprintf(
-		`mutation { verifyEmail(input:{email:%q, code:%q}) { verified } }`, email, code))
+func (r *smokeRunner) inviteUser(token, email string) error {
+	_, err := r.mustQuery(token, fmt.Sprintf(
+		`mutation { inviteUser(input:{email:%q, firstName:"Duman", lastName:"Testi", role:EMPLOYEE}) { invited email } }`, email))
 	return err
+}
+
+type organizationUserView struct {
+	MembershipStatus string `json:"membershipStatus"`
+	Devices          []struct {
+		Name       string `json:"name"`
+		IPAddress  string `json:"ipAddress"`
+		MACAddress string `json:"macAddress"`
+	} `json:"devices"`
+}
+
+func (r *smokeRunner) organizationUser(token, email string) (organizationUserView, error) {
+	resp, err := r.mustQuery(token, `{ organizationUsers {
+		membershipStatus user { email } devices { name ipAddress macAddress }
+	} }`)
+	if err != nil {
+		return organizationUserView{}, err
+	}
+	var payload struct {
+		OrganizationUsers []struct {
+			organizationUserView
+			User struct {
+				Email string `json:"email"`
+			} `json:"user"`
+		} `json:"organizationUsers"`
+	}
+	if err := resp.decode(&payload); err != nil {
+		return organizationUserView{}, err
+	}
+	for _, user := range payload.OrganizationUsers {
+		if strings.EqualFold(user.User.Email, email) {
+			return user.organizationUserView, nil
+		}
+	}
+	return organizationUserView{}, fmt.Errorf("%s bulunamadı", email)
 }
 
 func (r *smokeRunner) verifyCode(email, code string, device *deviceInput, signature string) (authResult, error) {
@@ -155,25 +181,6 @@ func (r *smokeRunner) loginAdmin() (string, error) {
 		return "", err
 	}
 	return auth.AccessToken, nil
-}
-
-// joinDemoOrg, duman testi kullanıcısını tohum organizasyonuna taşır.
-//
-// Yeni kullanıcı kendi kişisel organizasyonunda açılıyor ve orada oynanabilir
-// içerik yok. Kişisel üyelik siliniyor çünkü çözücü en eski etkin üyeliği
-// seçiyor ve o, kişisel organizasyon.
-func (r *smokeRunner) joinDemoOrg(userID string) error {
-	statements := []string{
-		fmt.Sprintf(`INSERT INTO organization_users (organization_id, user_id, status) VALUES ('%s','%s','active') ON CONFLICT (organization_id, user_id) DO UPDATE SET status='active'`, demoOrg, userID),
-		fmt.Sprintf(`DELETE FROM organization_users WHERE user_id='%s' AND organization_id <> '%s'`, userID, demoOrg),
-		fmt.Sprintf(`INSERT INTO user_roles (user_id, role_id, organization_id) SELECT '%s', id, '%s' FROM roles WHERE scope_id='%s' AND name='trainee'`, userID, demoOrg, demoOrg),
-	}
-	for _, sql := range statements {
-		if _, err := psql(sql); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // --- oturum akışı ---

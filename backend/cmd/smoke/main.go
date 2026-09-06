@@ -5,9 +5,10 @@
 // tek başına çalışırken zincirin tamamının çalışmaması mümkündür — adımlar
 // birbirinin çıktısına bağlı, ve o bağların koptuğunu ancak bu test görür.
 //
-// Zincir: kod iste → doğrula → cihaz kaydet → oturum başlat → birkaç konuşma
-// sırası gönder → oturumu bitir → skoru al → alıntıları doğrula → skoru ez →
-// veriyi dışa aktar → hesabı sil → kalıcı silmeyi tetikle.
+// Zincir: yönetici davet eder → Desktop kod ister ve doğrular → cihaz yöneticide
+// görünür → oturum başlat → birkaç konuşma sırası gönder → oturumu bitir → skoru
+// al → alıntıları doğrula → skoru ez → veriyi dışa aktar → hesabı sil → kalıcı
+// silmeyi tetikle.
 //
 // Çalıştırma: scripts/smoke.sh
 package main

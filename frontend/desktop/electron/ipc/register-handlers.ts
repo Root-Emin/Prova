@@ -43,6 +43,7 @@ export function registerIpcHandlers(
   handle(IPC_CHANNELS.deviceGetRegistrationInfo, () => deviceIdentity.getRegistrationInfo())
   handle(IPC_CHANNELS.permissionsGetMicrophoneStatus, getMicrophoneStatus)
   handle(IPC_CHANNELS.authRequestLoginCode, (email: string) => authService.requestLoginCode(email))
+  handle(IPC_CHANNELS.authLogin, (email: string, password: string) => authService.login(email, password))
   handle(IPC_CHANNELS.authVerifyLoginCode, (email: string, code: string) => authService.verifyLoginCode(email, code))
   handle(IPC_CHANNELS.onboardingGetState, () => onboarding.getState())
   handle(IPC_CHANNELS.onboardingComplete, () => onboarding.complete())

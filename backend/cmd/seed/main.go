@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	iamModel "github.com/masterfabric-go/masterfabric/internal/domain/iam/model"
 	tenantModel "github.com/masterfabric-go/masterfabric/internal/domain/tenant/model"
@@ -46,8 +47,10 @@ var (
 
 // Tohum kullanıcılarının adresleri.
 const (
-	adminEmail   = "yonetici@prova.local"
-	traineeEmail = "calisan@prova.local"
+	adminEmail      = "yonetici@prova.local"
+	traineeEmail    = "calisan@prova.local"
+	adminPassword   = "SecurePass123!"
+	traineePassword = "DevPass456!"
 )
 
 func main() {
@@ -110,23 +113,42 @@ func seedIdentity(ctx context.Context, db *pgxpool.Pool) error {
 	}
 
 	now := time.Now().UTC()
-	seedUsers := []*iamModel.User{
-		{ID: adminUserID, Email: adminEmail, FirstName: "Demo", LastName: "Yönetici",
-			Status: iamModel.UserStatusActive, EmailVerifiedAt: &now},
-		{ID: traineeUserID, Email: traineeEmail, FirstName: "Demo", LastName: "Çalışan",
-			Status: iamModel.UserStatusActive, EmailVerifiedAt: &now},
+	seedUsers := []struct {
+		user     *iamModel.User
+		password string
+	}{
+		{user: &iamModel.User{ID: adminUserID, Email: adminEmail, FirstName: "Demo", LastName: "Yönetici",
+			Status: iamModel.UserStatusActive, EmailVerifiedAt: &now}, password: adminPassword},
+		{user: &iamModel.User{ID: traineeUserID, Email: traineeEmail, FirstName: "Demo", LastName: "Çalışan",
+			Status: iamModel.UserStatusActive, EmailVerifiedAt: &now}, password: traineePassword},
 	}
-	for _, user := range seedUsers {
-		if err := createIfMissing(ctx, user.ID, func() error { return users.Create(ctx, user) },
-			func() error { _, err := users.GetByID(ctx, user.ID); return err }); err != nil {
-			return fmt.Errorf("kullanıcı %s: %w", user.Email, err)
+	for _, seeded := range seedUsers {
+		hash, err := bcrypt.GenerateFromPassword([]byte(seeded.password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("kullanıcı %s şifresi: %w", seeded.user.Email, err)
+		}
+		seeded.user.PasswordHash = string(hash)
+		existing, err := users.GetByID(ctx, seeded.user.ID)
+		switch {
+		case errors.Is(err, domainErr.ErrNotFound):
+			if err := users.Create(ctx, seeded.user); err != nil {
+				return fmt.Errorf("kullanıcı %s: %w", seeded.user.Email, err)
+			}
+		case err == nil:
+			// Re-running seed repairs the password hash on an existing local DB.
+			existing.PasswordHash = seeded.user.PasswordHash
+			if err := users.Update(ctx, existing); err != nil {
+				return fmt.Errorf("kullanıcı %s güncellenemedi: %w", seeded.user.Email, err)
+			}
+		default:
+			return fmt.Errorf("kullanıcı %s: %w", seeded.user.Email, err)
 		}
 		if err := orgUsers.Add(ctx, &iamModel.OrganizationUser{
 			OrganizationID: demoOrgID,
-			UserID:         user.ID,
+			UserID:         seeded.user.ID,
 			Status:         iamModel.OrgUserStatusActive,
 		}); err != nil {
-			return fmt.Errorf("üyelik %s: %w", user.Email, err)
+			return fmt.Errorf("üyelik %s: %w", seeded.user.Email, err)
 		}
 	}
 
@@ -150,6 +172,7 @@ func seedIdentity(ctx context.Context, db *pgxpool.Pool) error {
 				"routing:read", "audit:read",
 				"score:read", "score:override",
 				"session:read", "session:write",
+				"users:read", "users:write",
 				// session:read:all, başkasının oturumunu okuma hakkı.
 				// session:read'den ayrı: o hak çalışanda da var ve kendi
 				// oturumunu okumak anlamına geliyor. İkisini aynı ada
@@ -162,7 +185,7 @@ func seedIdentity(ctx context.Context, db *pgxpool.Pool) error {
 			name:        "trainee",
 			description: "Yayınlanmış içerikle oturum oynar; sonuçları kurum yöneticisi inceler",
 			permissions: []string{
-				"content:read", "session:read", "session:write",
+				"content:read", "session:read", "session:write", "score:read",
 			},
 			users: []uuid.UUID{traineeUserID},
 		},

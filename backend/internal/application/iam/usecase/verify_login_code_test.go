@@ -102,20 +102,47 @@ func TestVerifyLoginCode_IssuesTokenForCorrectCode(t *testing.T) {
 	assert.Nil(t, resp.Device, "no fingerprint was sent, so nothing may be paired")
 }
 
-// A login code authenticates only. It must never turn an unverified account
-// into a verified one.
-func TestVerifyLoginCode_DoesNotMarkEmailVerified(t *testing.T) {
+// First-launch invite redemption: a correct login code verifies + activates
+// a provisioned unverified account so desktop/web can complete sign-in.
+func TestVerifyLoginCode_MarksUnverifiedEmailVerifiedAndActivates(t *testing.T) {
 	cfg := testAuthConfig()
-	user := &model.User{Email: "user@corp.com", Status: model.UserStatusActive}
+	user := &model.User{Email: "user@corp.com", Status: model.UserStatusInactive}
 	f := newVerifyFixture(t, cfg, newFakeUserRepo(user))
 	user.EmailVerifiedAt = nil
 	f.seedCode("user@corp.com", cfg)
 
+	resp, err := f.uc.Execute(context.Background(),
+		dto.VerifyLoginCodeRequest{Email: "user@corp.com", Code: "123456", Device: &dto.DeviceInfo{
+			Fingerprint: "desktop-fingerprint-0123456789",
+			Name:        "Test Mac",
+			Platform:    "darwin",
+			MACAddress:  "A4:83:E7:1C:9D:02",
+		}}, "203.0.113.10")
+
+	require.NoError(t, err)
+	require.NotNil(t, user.EmailVerifiedAt)
+	assert.Equal(t, model.UserStatusActive, user.Status)
+	assert.NotEmpty(t, resp.Token)
+	require.NotNil(t, resp.Device)
+	require.Len(t, f.devices.devices, 1)
+	assert.Equal(t, "203.0.113.10", f.devices.devices[0].IPAddress)
+	assert.Equal(t, "A4:83:E7:1C:9D:02", f.devices.devices[0].MACAddress)
+}
+
+func TestVerifyLoginCode_RequiresDesktopBeforeActivatingInvitedUser(t *testing.T) {
+	cfg := testAuthConfig()
+	user := &model.User{Email: "user@corp.com", Status: model.UserStatusInactive}
+	f := newVerifyFixture(t, cfg, newFakeUserRepo(user))
+	user.EmailVerifiedAt = nil
+	code := f.seedCode("user@corp.com", cfg)
+
 	_, err := f.uc.Execute(context.Background(),
 		dto.VerifyLoginCodeRequest{Email: "user@corp.com", Code: "123456"}, "")
 
-	assert.ErrorIs(t, err, domainErr.ErrUnauthorized)
+	require.ErrorIs(t, err, domainErr.ErrForbidden)
 	assert.Nil(t, user.EmailVerifiedAt)
+	assert.Equal(t, model.UserStatusInactive, user.Status)
+	assert.Nil(t, code.ConsumedAt, "the user can redeem the same code from Desktop")
 }
 
 // The code is single-use. Two requests carrying the same correct code must not

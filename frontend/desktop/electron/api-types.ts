@@ -22,6 +22,8 @@ export type DeviceRegistrationInfo = DeviceInfo & {
   fingerprint: string
   /** Raw 32-byte Ed25519 public key encoded as standard base64. */
   publicKey: string
+  /** Active network adapter MAC address; unavailable on some systems. */
+  macAddress: string
 }
 
 export type LoginCodeResponse = {
@@ -52,6 +54,7 @@ export type ProvaAPI = {
     getMicrophoneStatus(): Promise<MicrophonePermissionStatus>
   }
   auth: {
+    login(email: string, password: string): Promise<LoginResult>
     requestLoginCode(email: string): Promise<LoginCodeResponse>
     verifyLoginCode(email: string, code: string): Promise<LoginResult>
   }

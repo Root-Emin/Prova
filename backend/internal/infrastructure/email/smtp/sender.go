@@ -36,13 +36,17 @@ func New(cfg config.EmailConfig) (*Sender, error) {
 	if strings.TrimSpace(cfg.FromAddress) == "" {
 		return nil, errors.New("smtp: EMAIL_FROM_ADDRESS boş")
 	}
+	from, err := notifyModel.ParseAddress(cfg.FromAddress, cfg.FromName)
+	if err != nil {
+		return nil, fmt.Errorf("smtp: geçersiz gönderen adresi: %w", err)
+	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	return &Sender{
 		cfg:     cfg.SMTP,
-		from:    notifyModel.Address{Email: cfg.FromAddress, Name: cfg.FromName},
+		from:    from,
 		replyTo: cfg.ReplyTo,
 		timeout: timeout,
 	}, nil

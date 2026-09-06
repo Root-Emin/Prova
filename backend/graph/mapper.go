@@ -80,6 +80,8 @@ func mapDevice(d *iamModel.Device) *model.Device {
 		ID:           d.ID,
 		Name:         d.Name,
 		Platform:     mapPlatform(d.Platform),
+		IPAddress:    d.IPAddress,
+		MacAddress:   d.MACAddress,
 		LastSeenAt:   d.LastSeenAt,
 		RevokedAt:    d.RevokedAt,
 		HasPublicKey: d.PublicKey != "",
@@ -104,6 +106,7 @@ func mapDeviceInput(in *model.DeviceInput) *iamDTO.DeviceInfo {
 		Fingerprint: in.Fingerprint,
 		Name:        derefString(in.Name),
 		Platform:    derefString(in.Platform),
+		MACAddress:  derefString(in.MacAddress),
 		PublicKey:   derefString(in.PublicKey),
 	}
 }

@@ -27,13 +27,13 @@ func NewDeviceRepo(db *pgxpool.Pool) *DeviceRepo {
 // fingerprint kolonu artık yok: parmak izi bir sırdır ve düz metin saklanırsa
 // veritabanına erişen biri onu istemci gibi gönderebilir. Yerini
 // fingerprint_hash aldı (00017 migration'ı mevcut satırları taşıdı).
-const deviceColumns = `id, user_id, fingerprint_hash, COALESCE(public_key, ''), name, platform, last_seen_at, revoked_at, created_at`
+const deviceColumns = `id, user_id, fingerprint_hash, COALESCE(public_key, ''), name, platform, COALESCE(ip_address, ''), COALESCE(mac_address, ''), last_seen_at, revoked_at, created_at`
 
 // scanDevice, satırı modele çevirir. Ham parmak izi hiçbir okumada dönmez;
 // modeldeki Fingerprint alanı yalnızca yazma yolunda dolar.
 func scanDevice(row scanner, d *model.Device) error {
 	return row.Scan(&d.ID, &d.UserID, &d.FingerprintHash, &d.PublicKey, &d.Name,
-		&d.Platform, &d.LastSeenAt, &d.RevokedAt, &d.CreatedAt)
+		&d.Platform, &d.IPAddress, &d.MACAddress, &d.LastSeenAt, &d.RevokedAt, &d.CreatedAt)
 }
 
 // Pair registers or refreshes the pairing and fills in the stored row.
@@ -58,22 +58,26 @@ func (r *DeviceRepo) Pair(ctx context.Context, device *model.Device) (bool, erro
 		created bool
 	)
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO user_devices (id, user_id, fingerprint_hash, public_key, name, platform, last_seen_at, created_at)
-		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $7)
+		`INSERT INTO user_devices (id, user_id, fingerprint_hash, public_key, name, platform, ip_address, mac_address, last_seen_at, created_at)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9, $9)
 		 ON CONFLICT (user_id, fingerprint_hash) DO UPDATE
 		   SET last_seen_at = EXCLUDED.last_seen_at,
 		       -- Keep the stored name unless the client supplied a new one, so
 		       -- a client that forgets to send it cannot blank the list entry.
 		       name = COALESCE(NULLIF(EXCLUDED.name, ''), user_devices.name),
+		       -- IP is server-observed. MAC is optional on systems without an
+		       -- active physical adapter, so an empty value must not erase it.
+		       ip_address = COALESCE(NULLIF(EXCLUDED.ip_address, ''), user_devices.ip_address),
+		       mac_address = COALESCE(NULLIF(EXCLUDED.mac_address, ''), user_devices.mac_address),
 		       -- Açık anahtar yalnızca ilk kayıtta yazılır. Sonradan
 		       -- değiştirilebilseydi, çalınmış bir token'la kendi anahtarını
 		       -- yazan biri cihazı devralırdı.
 		       public_key = COALESCE(user_devices.public_key, EXCLUDED.public_key)
 		 RETURNING `+deviceColumns+`, (xmax = 0) AS created`,
 		device.ID, device.UserID, device.FingerprintHash, device.PublicKey,
-		device.Name, device.Platform, device.LastSeenAt,
+		device.Name, device.Platform, device.IPAddress, device.MACAddress, device.LastSeenAt,
 	).Scan(&stored.ID, &stored.UserID, &stored.FingerprintHash, &stored.PublicKey, &stored.Name,
-		&stored.Platform, &stored.LastSeenAt, &stored.RevokedAt, &stored.CreatedAt, &created)
+		&stored.Platform, &stored.IPAddress, &stored.MACAddress, &stored.LastSeenAt, &stored.RevokedAt, &stored.CreatedAt, &created)
 	if err != nil {
 		return false, domainErr.New(domainErr.ErrInternal, "failed to pair device", err)
 	}

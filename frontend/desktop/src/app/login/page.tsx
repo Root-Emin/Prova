@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormShell } from "@/components/prova/form-shell";
-import { setPendingLogin } from "@/lib/auth-flow";
 import { authErrorMessage } from "@/lib/auth-errors";
 
 function emailLooksValid(value: string) {
@@ -17,6 +16,7 @@ function emailLooksValid(value: string) {
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const validEmail = emailLooksValid(email);
@@ -25,7 +25,11 @@ export default function LoginPage() {
     event.preventDefault();
     const normalizedEmail = email.trim().toLowerCase();
     if (!emailLooksValid(normalizedEmail)) {
-      setError("Geçerli bir e-posta girin");
+      setError("Geçerli bir kullanıcı adı/e-posta girin");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Şifre en az 8 karakter olmalı");
       return;
     }
     const api = window.prova;
@@ -37,14 +41,13 @@ export default function LoginPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await api.auth.requestLoginCode(normalizedEmail);
-      setPendingLogin(normalizedEmail, response);
-      router.push("/verify");
+      await api.auth.login(normalizedEmail, password);
+      router.push("/");
     } catch (requestError) {
       setError(
         authErrorMessage(
           requestError,
-          "Kod gönderilemedi. Lütfen tekrar deneyin.",
+          "Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.",
         ),
       );
     } finally {
@@ -55,23 +58,23 @@ export default function LoginPage() {
   return (
     <FormShell
       title="Giriş yap"
-      description="Hesabınıza giriş yapmak için e-posta adresinizi yazın."
+      description="Test hesabınızın kullanıcı adı ve şifresiyle giriş yapın."
     >
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="space-y-2">
-          <Label htmlFor="login-email">E-posta adresi</Label>
+          <Label htmlFor="login-email">Kullanıcı adı / e-posta</Label>
           <Input
             id="login-email"
             type="email"
             inputMode="email"
-            autoComplete="email"
+            autoComplete="username"
             autoFocus
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
               if (error) setError(null);
             }}
-            placeholder="ad.soyad@kurum.tr"
+            placeholder="yonetici@prova.local"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "login-email-error" : undefined}
           />
@@ -86,13 +89,29 @@ export default function LoginPage() {
           ) : null}
         </div>
 
+        <div className="space-y-2">
+          <Label htmlFor="login-password">Şifre</Label>
+          <Input
+            id="login-password"
+            type="password"
+            minLength={8}
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="SecurePass123!"
+          />
+        </div>
+
         <Button
           type="submit"
           className="w-full"
           size="lg"
           disabled={!validEmail || isSubmitting}
         >
-          {isSubmitting ? "Gönderiliyor…" : "Kod gönder"}
+          {isSubmitting ? "Giriş yapılıyor…" : "Giriş yap"}
         </Button>
       </form>
     </FormShell>

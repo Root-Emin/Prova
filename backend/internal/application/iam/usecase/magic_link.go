@@ -167,7 +167,7 @@ func (uc *VerifyMagicLinkUseCase) Execute(ctx context.Context, req dto.VerifyMag
 		IPAddress:    requestIP,
 	})
 
-	return uc.login.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, now, "magic_link")
+	return uc.login.CompleteLogin(ctx, user, req.Device, req.DeviceSignature, requestIP, now, "magic_link")
 }
 
 // resolveUser returns an existing verified account. A login link authenticates;

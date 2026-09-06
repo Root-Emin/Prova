@@ -25,7 +25,7 @@ cp .env.example .env        # JWT_SECRET, AUTH_CODE_PEPPER ve EMAIL_VERIFICATION
 #   openssl rand -base64 32   → EMAIL_VERIFICATION_OTP_PEPPER
 #   openssl rand -base64 32   → AUTH_CODE_PEPPER
 
-# 4. Tohum verisi (demo organizasyonu, karakterler, senaryolar, rubrik, LLM profilleri)
+# 4. Tohum verisi (demo organizasyonu, kullanıcılar, karakterler, senaryolar, rubrik, LLM profilleri)
 go run ./cmd/seed
 
 # 5. Sunucu
@@ -34,6 +34,15 @@ go run ./cmd/server
 
 Sunucu `:8080`'de açılır. Geliştirmede GraphQL playground `/playground`,
 yakalanan e-postalar `http://localhost:8025` (Mailpit).
+
+Demo giriş bilgileri:
+
+- Yönetici: `yonetici@prova.local` / `SecurePass123!`
+- Çalışan: `calisan@prova.local` / `DevPass456!`
+
+Bu yerel/test hesapları `login` mutation'ıyla şifreli giriş yapar. Şifresi
+olmayan hesaplar için `requestLoginCode` ve `verifyLoginCode` OTP akışı devam
+eder.
 
 **Gerçek bir LLM olmadan denemek için** sahte sağlayıcıyı kullanın:
 

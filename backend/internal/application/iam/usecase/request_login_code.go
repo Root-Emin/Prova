@@ -100,15 +100,16 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 	user, err := uc.Users.GetByEmail(ctx, email)
 	switch {
 	case err == nil:
-		// Login is only available after the dedicated registration verification
-		// flow has proved the address. Keep the response generic so this check
-		// does not expose account state.
-		if !user.IsEmailVerified() || (!user.IsActive() && !user.IsPendingDeletion()) {
+		// Company invites leave users inactive/unverified until first launch.
+		// Those provisioned accounts must still receive a login code so the
+		// desktop/web verify step can activate them. Deleted and suspended
+		// accounts stay silent so this endpoint cannot probe admin state.
+		// Keep the response generic either way (anti-enumeration).
+		if user.IsDeleted() || user.Status == model.UserStatusSuspended {
 			return uc.response(), nil
 		}
 	case errors.Is(err, domainErr.ErrNotFound):
-		// Registration is a distinct mutation. Login never provisions an
-		// account and never doubles as e-mail verification.
+		// Unknown addresses never receive mail and never provision an account.
 		return uc.response(), nil
 	default:
 		return nil, err
@@ -147,7 +148,13 @@ func (uc *RequestLoginCodeUseCase) Execute(ctx context.Context, req dto.RequestL
 	// Aynı ileti hem kodu hem bağlantıyı taşır: kullanıcı hangisini isterse
 	// onu kullanır. Bağlantı üretimi başarısız olursa ileti kodla gider —
 	// bağlantı bir kolaylıktır, girişin tek yolu değil.
-	magicToken := uc.issueMagicLink(ctx, email, now)
+	// A first-launch invite must be redeemed by Desktop so the mailbox proof
+	// and device pairing happen as one operation. Magic links remain a
+	// convenience only for accounts that have already paired once.
+	magicToken := ""
+	if user.IsEmailVerified() {
+		magicToken = uc.issueMagicLink(ctx, email, now)
+	}
 	msg := template.LoginCode(notifyModel.Address{Email: email}, code, uc.Cfg.CodeTTL, uc.magicLinkURL(magicToken))
 	messageID, err := uc.Sender.Send(ctx, msg)
 	if err != nil {
